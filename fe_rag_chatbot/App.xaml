@@ -1,0 +1,44 @@
+<Application x:Class="RAGChatbot.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:converters="clr-namespace:RAGChatbot.Converters"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <materialDesign:BundledTheme BaseTheme="Light" PrimaryColor="DeepPurple" SecondaryColor="Lime" />
+                <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesign2.Defaults.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            
+            <!-- Converters -->
+            <converters:MessageStyleConverter x:Key="MessageStyleConverter"/>
+            <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+            <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+            
+            <!-- Custom Styles -->
+            <Style x:Key="UserMessageStyle" TargetType="Border">
+                <Setter Property="Background" Value="#E3F2FD"/>
+                <Setter Property="CornerRadius" Value="10"/>
+                <Setter Property="Padding" Value="12"/>
+                <Setter Property="Margin" Value="50,5,10,5"/>
+                <Setter Property="HorizontalAlignment" Value="Right"/>
+            </Style>
+            
+            <Style x:Key="AssistantMessageStyle" TargetType="Border">
+                <Setter Property="Background" Value="#F5F5F5"/>
+                <Setter Property="CornerRadius" Value="10"/>
+                <Setter Property="Padding" Value="12"/>
+                <Setter Property="Margin" Value="10,5,50,5"/>
+                <Setter Property="HorizontalAlignment" Value="Left"/>
+            </Style>
+            
+            <Style x:Key="SourceChipStyle" TargetType="Border">
+                <Setter Property="Background" Value="#E8E8E8"/>
+                <Setter Property="CornerRadius" Value="15"/>
+                <Setter Property="Padding" Value="8,4"/>
+                <Setter Property="Margin" Value="2"/>
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

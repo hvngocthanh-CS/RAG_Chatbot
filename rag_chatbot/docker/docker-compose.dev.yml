@@ -1,0 +1,20 @@
+version: '3.8'
+
+# Development Docker Compose configuration
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  api:
+    build:
+      target: development
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ../backend:/app/backend:cached
+      - ../scripts:/app/scripts:cached
+      - rag-data-dev:/app/data
+    command: uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  rag-data-dev:
