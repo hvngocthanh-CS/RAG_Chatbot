@@ -179,19 +179,45 @@ class ChromaVectorStore(BaseVectorStore):
         
         return chunks
     
-    def _build_where_clause(self, filters: Dict[str, Any]) -> Dict[str, Any]:
-        """Build ChromaDB where clause from filters."""
+    def _build_where_clause(self, filters: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Build ChromaDB where clause from filters.
+
+        Supported filter formats:
+          Simple equality:  {"department": "HR"}
+          Operator dict:    {"page_number": {"$gte": 2}}
+          List ($in):       {"category": ["Policy", "SOP"]}
+          Tags substring:   {"tags": "onboarding"}  → substring match via $contains
+        """
         conditions = []
-        
+
         for key, value in filters.items():
-            if value is not None and value != "":
+            if value is None or value == "":
+                continue
+
+            # Already an operator dict (e.g. {"$gte": 2})
+            if isinstance(value, dict):
+                conditions.append({key: value})
+
+            # List → $in operator
+            elif isinstance(value, list):
+                non_empty = [v for v in value if v is not None and v != ""]
+                if non_empty:
+                    conditions.append({key: {"$in": non_empty}})
+
+            # Tags field: use substring match
+            elif key == "tags":
+                conditions.append({key: {"$contains": str(value)}})
+
+            # Plain scalar → exact match
+            else:
                 conditions.append({key: {"$eq": value}})
-        
+
+        if len(conditions) == 0:
+            return None
         if len(conditions) == 1:
             return conditions[0]
-        elif len(conditions) > 1:
-            return {"$and": conditions}
-        return None
+        return {"$and": conditions}
     
     async def keyword_search(
         self,

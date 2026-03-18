@@ -146,6 +146,21 @@ class Settings(BaseSettings):
     RERANKER_MODEL: str = "BAAI/bge-reranker-base"
     USE_HYBRID_SEARCH: bool = True
     HYBRID_ALPHA: float = 0.5  # Balance between vector and keyword search
+    # Minimum cosine similarity score (0-1) to include a chunk in results.
+    # Chunks below this threshold are discarded before reranking.
+    # Raise to 0.4+ for stricter answers; lower to 0.2 if recall is too low.
+    RETRIEVAL_SCORE_THRESHOLD: float = 0.30
+
+    # ===========================================
+    # Conversational Query Rewriting
+    # ===========================================
+    # Enable LLM-based rewriting of follow-up questions into standalone
+    # queries before vector retrieval.  Costs one extra LLM call per
+    # multi-turn request; disable if latency is critical.
+    QUERY_REWRITE_ENABLED: bool = True
+    # Only rewrite when conversation has at least this many prior turns
+    # (i.e. at least 1 prior exchange = 2 messages: user + assistant).
+    QUERY_REWRITE_MIN_TURNS: int = 2
     
     # ===========================================
     # Redis Cache

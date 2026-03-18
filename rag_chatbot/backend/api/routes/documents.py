@@ -49,8 +49,12 @@ class UploadResponse(BaseModel):
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    department: Optional[str] = Query(None, description="Department tag"),
-    tags: Optional[str] = Query(None, description="Comma-separated tags")
+    department: Optional[str] = Query(None, description="Department that owns this document (e.g. HR, Finance, IT)"),
+    category: Optional[str] = Query(None, description="Document category (e.g. Policy, SOP, Report, Contract, Handbook)"),
+    author: Optional[str] = Query(None, description="Author or document owner name"),
+    version: Optional[str] = Query(None, description="Document version (e.g. v1.0, 2024-Q1)"),
+    doc_date: Optional[str] = Query(None, description="Document effective/publish date (YYYY-MM-DD)"),
+    tags: Optional[str] = Query(None, description="Comma-separated tags for free-text filtering")
 ):
     """
     Upload and process a document.
@@ -95,7 +99,12 @@ async def upload_document(
         "filename": file.filename,
         "file_type": file_ext,
         "file_size": len(file_content),
+        "language": "en",          # English-only system
         "department": department,
+        "category": category,      # Policy | SOP | Report | Contract | Handbook | …
+        "author": author,
+        "version": version,
+        "doc_date": doc_date,
         "tags": tag_list
     }
     

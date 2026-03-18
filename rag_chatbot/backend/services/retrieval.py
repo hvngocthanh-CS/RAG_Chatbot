@@ -10,6 +10,7 @@ from backend.services import get_service
 from backend.services.vector_store import ChromaVectorStore
 from backend.services.reranker import RerankerService
 from backend.services.query_understanding import QueryUnderstandingService
+from backend.services.query_rewriter import QueryRewriterService
 
 logger = logging.getLogger(__name__)
 
@@ -17,20 +18,24 @@ logger = logging.getLogger(__name__)
 class RetrievalService:
     """
     Advanced retrieval service with query understanding, hybrid search, and reranking.
-    
+
     Pipeline:
-    1. Query understanding (detect intent: title, author, etc.)
+    0. Conversational query rewriting (follow-up → standalone query)
+    1. Query understanding (detect intent: policy, procedure, contact, ...)
     2. Query expansion based on intent
-    3. Vector search (semantic similarity)
-    4. Keyword search (if hybrid enabled)
-    5. Page/metadata boosting based on intent
-    6. Apply reranking model
-    7. Return top-k results
+    3. Enhance query with conversation context
+    4. Vector search (semantic similarity)
+    5. Score threshold filtering
+    6. Keyword search + RRF fusion (if hybrid enabled)
+    7. Intent-based metadata boosting
+    8. Cross-encoder reranking
+    9. Return top-k results
     """
-    
+
     def __init__(self):
         self.reranker = RerankerService() if settings.USE_RERANKER else None
         self.query_understanding = QueryUnderstandingService()
+        self.query_rewriter = QueryRewriterService()
     
     @property
     def embedding_service(self):
@@ -61,22 +66,41 @@ class RetrievalService:
         """
         top_k = top_k or settings.TOP_K_RERANK
         retrieval_k = settings.TOP_K_RETRIEVAL
-        
-        # Step 0: Query understanding
+
+        # Step 0: Conversational query rewriting
+        # Resolve pronouns and references before any embedding/search.
+        # e.g. "Who is the main one among those 3?" →
+        #      "Who is the primary author among John Smith, Jane Doe, and Bob Lee?"
+        retrieval_query = query  # the query we will actually embed
+        if (
+            settings.QUERY_REWRITE_ENABLED
+            and conversation_history
+            and len(conversation_history) >= settings.QUERY_REWRITE_MIN_TURNS
+        ):
+            retrieval_query = await self.query_rewriter.rewrite(
+                question=query,
+                conversation_history=conversation_history,
+            )
+
+        # Step 1: Query understanding (intent on *original* user question)
         intent = self.query_understanding.analyze_query(query)
-        logger.info(f"Detected intent: {intent.intent_type} (confidence: {intent.confidence:.2f})")
-        
-        # Expand query based on intent
-        expanded_query = self.query_understanding.expand_query(query, intent)
-        
-        # Optionally enhance query with conversation context
+        logger.info(
+            "intent=%s confidence=%.2f rewrite=%s",
+            intent.intent_type, intent.confidence,
+            "yes" if retrieval_query != query else "no",
+        )
+
+        # Step 2: Expand query based on intent
+        expanded_query = self.query_understanding.expand_query(retrieval_query, intent)
+
+        # Step 3: Enhance query with conversation context (light prefix only)
         enhanced_query = self._enhance_query(expanded_query, conversation_history)
         
         # Step 1: Vector search
         logger.info(f"Performing vector search for: {query[:50]}...")
         query_embedding = await self.embedding_service.embed_query(enhanced_query)
-        
-        # Apply intent-based filters (e.g., page 1 for title questions)
+
+        # Apply intent-based filters (e.g., page 1 for policy/summary questions)
         search_filters = filters or {}
         if intent.page_filter:
             # Retrieve more results initially, then filter/boost by page
@@ -90,6 +114,18 @@ class RetrievalService:
                 query_embedding=query_embedding,
                 top_k=retrieval_k,
                 filters=search_filters
+            )
+
+        # Filter out low-quality chunks below score threshold
+        before_filter = len(vector_results)
+        vector_results = [
+            r for r in vector_results
+            if r.get("score", 0) >= settings.RETRIEVAL_SCORE_THRESHOLD
+        ]
+        if before_filter != len(vector_results):
+            logger.info(
+                f"Score threshold ({settings.RETRIEVAL_SCORE_THRESHOLD}) filtered "
+                f"{before_filter - len(vector_results)}/{before_filter} chunks"
             )
         
         # Step 2: Apply intent-based boosting
@@ -171,31 +207,34 @@ class RetrievalService:
         conversation_history: Optional[List[Dict]] = None
     ) -> str:
         """
-        Enhance query with conversation context for better retrieval.
+        Enhance query with the immediately preceding user question so the
+        embedding captures follow-up context (e.g. "What about the deadline?"
+        after discussing a leave policy).
+
+        Strategy:
+        - Only prepend the LAST user message as a short prefix.
+        - Skip if it is identical/nearly identical to the current query.
+        - Limit prefix to 120 chars to avoid diluting the current query.
         """
         if not conversation_history:
             return query
-        
-        # Include last few exchanges for context
-        context_turns = conversation_history[-4:]  # Last 2 exchanges
-        
-        if not context_turns:
+
+        # Walk backwards to find the most recent user turn
+        last_user_content = None
+        for turn in reversed(conversation_history):
+            if turn.get("role") == "user":
+                last_user_content = turn.get("content", "").strip()
+                break
+
+        if not last_user_content:
             return query
-        
-        # Build context string
-        context_parts = []
-        for turn in context_turns:
-            role = turn.get("role", "")
-            content = turn.get("content", "")[:200]  # Limit length
-            if role == "user":
-                context_parts.append(f"Previous question: {content}")
-            elif role == "assistant":
-                context_parts.append(f"Previous answer: {content}")
-        
-        # Combine context with current query
-        enhanced = f"{' '.join(context_parts)} Current question: {query}"
-        
-        return enhanced
+
+        # Skip if essentially the same question (avoids redundancy)
+        if last_user_content.lower()[:80] == query.lower()[:80]:
+            return query
+
+        prefix = last_user_content[:120]
+        return f"Context: {prefix} | Question: {query}"
     
     async def _keyword_search(
         self,

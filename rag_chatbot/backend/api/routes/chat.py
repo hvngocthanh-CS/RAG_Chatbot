@@ -31,7 +31,11 @@ class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     conversation_id: Optional[str] = None
     stream: bool = True
-    filters: Optional[dict] = None  # Metadata filters for retrieval
+    # Metadata filters passed straight to the vector store.
+    # Supported keys: department, category, author, version, doc_date,
+    #                 document_id, tags (substring match).
+    # Example: {"department": "HR", "category": ["Policy", "SOP"]}
+    filters: Optional[dict] = None
 
 
 class SourceChunk(BaseModel):
@@ -216,25 +220,37 @@ async def stream_response(
 
 
 def format_context(chunks: List[dict]) -> str:
-    """Format retrieved chunks into context string."""
+    """
+    Format retrieved chunks into a context block sent to the LLM.
+
+    Each chunk header contains enough metadata for the model to produce
+    accurate citations (filename, page, category, department, version).
+    """
     context_parts = []
-    
+
     for i, chunk in enumerate(chunks, 1):
-        chunk_type = chunk["metadata"].get("chunk_type", "text")
-        source = chunk["metadata"]["filename"]
-        page = chunk["metadata"].get("page_number", "N/A")
-        
-        if chunk_type == "table":
-            context_parts.append(
-                f"[Source {i}: {source}, Page {page}, Type: Table]\n"
-                f"{chunk['content']}\n"
-            )
-        else:
-            context_parts.append(
-                f"[Source {i}: {source}, Page {page}]\n"
-                f"{chunk['content']}\n"
-            )
-    
+        meta = chunk["metadata"]
+        chunk_type = meta.get("chunk_type", "text")
+        source = meta.get("filename", "Unknown")
+        page = meta.get("page_number", "N/A")
+
+        # Build optional annotation parts
+        annotations = []
+        if meta.get("department"):
+            annotations.append(f"Dept: {meta['department']}")
+        if meta.get("category"):
+            annotations.append(f"Category: {meta['category']}")
+        if meta.get("version"):
+            annotations.append(f"Version: {meta['version']}")
+        if meta.get("doc_date"):
+            annotations.append(f"Date: {meta['doc_date']}")
+        annotation_str = (" | " + " | ".join(annotations)) if annotations else ""
+
+        type_label = ", Type: Table" if chunk_type in ("table", "table_rows") else ""
+        header = f"[Source {i}: {source}, Page {page}{type_label}{annotation_str}]"
+
+        context_parts.append(f"{header}\n{chunk['content']}\n")
+
     return "\n---\n".join(context_parts)
 
 

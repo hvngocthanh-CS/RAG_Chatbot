@@ -34,7 +34,11 @@ async def initialize_services():
     # Initialize LLM service
     from backend.services.llm import LLMService
     _services["llm"] = LLMService()
-    
+
+    # Initialize query rewriter (shares LLM provider config, lazy client)
+    from backend.services.query_rewriter import QueryRewriterService
+    _services["query_rewriter"] = QueryRewriterService()
+
     # Initialize cache if enabled
     if settings.USE_CACHE:
         from backend.services.cache import CacheService
