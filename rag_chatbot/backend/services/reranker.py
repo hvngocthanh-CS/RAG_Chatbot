@@ -35,8 +35,14 @@ class RerankerService:
             from sentence_transformers import CrossEncoder
             import torch
             
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            # Use configured device (CPU for this service to free GPU for LLM)
+            device = settings.RERANKER_DEVICE
+            # Validate device availability if CUDA is requested
+            if device == "cuda" and not torch.cuda.is_available():
+                logger.warning("CUDA requested but not available. Falling back to CPU.")
+                device = "cpu"
             
+            logger.info(f"Initializing reranker on device: {device} (configured via RERANKER_DEVICE setting)")
             self.model = CrossEncoder(
                 settings.RERANKER_MODEL,
                 max_length=512,
@@ -44,7 +50,7 @@ class RerankerService:
             )
             
             self._initialized = True
-            logger.info(f"Reranker initialized: {settings.RERANKER_MODEL}")
+            logger.info(f"✓ Reranker initialized: {settings.RERANKER_MODEL} on {device}")
             
         except ImportError:
             logger.warning("sentence-transformers not installed. Reranking disabled.")
@@ -78,7 +84,7 @@ class RerankerService:
         
         try:
             # Prepare query-passage pairs
-            pairs = [(query, chunk["content"]) for chunk in chunks]
+            pairs = [(query, chunk.get("text") or chunk.get("content", "")) for chunk in chunks]
             
             # Get reranker scores
             scores = self.model.predict(pairs, show_progress_bar=False)
@@ -88,9 +94,9 @@ class RerankerService:
             for chunk, score in zip(chunks, scores):
                 reranked_chunk = chunk.copy()
                 reranked_chunk["rerank_score"] = float(score)
-                # Combine original score with rerank score
+                # Combine original score with rerank score (tăng weight reranker lên 80%)
                 original_score = chunk.get("score", 0)
-                reranked_chunk["score"] = 0.3 * original_score + 0.7 * float(score)
+                reranked_chunk["score"] = 0.2 * original_score + 0.8 * float(score)
                 scored_chunks.append(reranked_chunk)
             
             # Sort by combined score

@@ -89,6 +89,8 @@ async def chat(request: ChatRequest):
         conversation_history=conversation_history
     )
     
+    # DEBUG: Log all retrieved chunks with scores
+    
     if not retrieved_chunks:
         raise HTTPException(
             status_code=404,
@@ -192,7 +194,6 @@ async def stream_response(
     error_message = None
     sent_token = False
     try:
-        logger.info(f"[DEBUG] LLM context for question: {question[:50]}...\nContext: {context[:200]}...")
         async for token in llm_service.generate_stream(
             question=question,
             context=context,
@@ -207,7 +208,7 @@ async def stream_response(
     finally:
         # If no token was sent, send a fallback token (for FE display)
         if not sent_token:
-            fallback_content = error_message or "Không có câu trả lời phù hợp."
+            fallback_content = error_message or "No relevant answer found in the provided documents."
             yield f"data: {json.dumps({'type': 'token', 'content': fallback_content})}\n\n"
         # Update conversation history
         conversation_manager.add_message(conversation_id, "user", question)

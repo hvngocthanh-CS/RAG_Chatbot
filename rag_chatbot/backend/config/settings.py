@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     def __init__(self, **values):
-        # Ưu tiên giá trị từ PROVIDER và VLLM_SERVER_URL nếu được set trong .env
+        # Support PROVIDER and VLLM_SERVER_URL aliases from .env
         provider = values.get('PROVIDER')
         vllm_server_url = values.get('VLLM_SERVER_URL')
         if provider:
@@ -58,37 +58,25 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_REQUESTS: int = 50
     
     # ===========================================
-    # LLM Settings - vLLM Integration
+    # LLM Settings
     # ===========================================
     LLM_PROVIDER: Literal["vllm", "ollama"] = "ollama"
-
-    # OpenAI Settings removed
     
     # Ollama Settings (local LLM)
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
-    OLLAMA_MODEL: str = "llama3.2"  # or qwen2.5, mistral, phi3, etc.
+    OLLAMA_MODEL: str = "phi3"  # or llama3.2, qwen2.5, mistral, etc.
     
-    # vLLM Settings (Primary)
-    VLLM_BASE_URL: str = "http://localhost:8000/v1"
+    # vLLM Settings (for Docker deployment)
+    VLLM_BASE_URL: str = "http://localhost:8001/v1"
     VLLM_MODEL_NAME: str = "microsoft/Phi-3-mini-4k-instruct"
-    VLLM_API_KEY: str = "not-needed"  # vLLM often doesn't require API key
-    
-    # vLLM Server Configuration (for deployment)
-    VLLM_TENSOR_PARALLEL_SIZE: int = 1
-    VLLM_GPU_MEMORY_UTILIZATION: float = 0.9
-    VLLM_MAX_MODEL_LEN: int = 4096
-    VLLM_QUANTIZATION: Optional[Literal["awq", "gptq", "squeezellm", "fp8"]] = None
-    VLLM_DTYPE: Literal["auto", "half", "float16", "bfloat16", "float32"] = "auto"
-    VLLM_TRUST_REMOTE_CODE: bool = True
+    VLLM_API_KEY: str = "not-needed"
     
     # Generation Settings
-    LLM_TEMPERATURE: float = 0.1
-    LLM_MAX_TOKENS: int = 2048
+    LLM_TEMPERATURE: float = 0.0  # Deterministic - same question = same answer
+    LLM_MAX_TOKENS: int = 2048  # Sufficient for complete multi-part answers
     LLM_TOP_P: float = 0.95
-    LLM_TOP_K: int = 40
-    LLM_REPETITION_PENALTY: float = 1.1
-    LLM_PRESENCE_PENALTY: float = 0.0
-    LLM_FREQUENCY_PENALTY: float = 0.0
+    LLM_PRESENCE_PENALTY: float = 0.2  # Reduce repetition
+    LLM_FREQUENCY_PENALTY: float = 0.3  # Reduce repetition
     
     # ===========================================
     # Resilience Settings (Circuit Breaker)
@@ -96,7 +84,6 @@ class Settings(BaseSettings):
     CIRCUIT_BREAKER_ENABLED: bool = True
     CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
     CIRCUIT_BREAKER_RECOVERY_TIMEOUT: int = 30  # seconds
-    CIRCUIT_BREAKER_EXPECTED_EXCEPTION: bool = True
     
     # Retry Settings
     RETRY_ENABLED: bool = True
@@ -104,20 +91,16 @@ class Settings(BaseSettings):
     RETRY_INITIAL_DELAY: float = 1.0  # seconds
     RETRY_MAX_DELAY: float = 10.0  # seconds
     RETRY_EXPONENTIAL_BASE: float = 2.0
-
-    # Fallback Settings removed
     
     # ===========================================
-    # Embedding Settings
+    # Embedding Settings (HuggingFace)
     # ===========================================
-    EMBEDDING_PROVIDER: Literal["openai", "huggingface"] = "huggingface"
-    EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
-    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
-    EMBEDDING_DIMENSION: int = 1024
-    EMBEDDING_BATCH_SIZE: int = 32
-    EMBEDDING_MAX_RETRIES: int = 3
+    EMBEDDING_PROVIDER: Literal["huggingface"] = "huggingface"
+    EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
+    EMBEDDING_DIMENSION: int = 768
+    EMBEDDING_DEVICE: Literal["cpu", "cuda"] = "cpu"
     
-    # ===========================================
+    # ==========================================
     # Vector Database Settings
     # ===========================================
     VECTOR_DB_TYPE: Literal["qdrant", "chroma"] = "chroma"
@@ -132,24 +115,34 @@ class Settings(BaseSettings):
     # ===========================================
     # Document Processing
     # ===========================================
-    CHUNK_SIZE: int = 500  # tokens
-    CHUNK_OVERLAP: int = 50  # tokens
+    CHUNK_SIZE: int = 500  # tokens per chunk (balanced size for context)
+    CHUNK_OVERLAP: int = 100  # tokens (more overlap = better continuity)
     MAX_FILE_SIZE_MB: int = 50
     SUPPORTED_EXTENSIONS: List[str] = [".pdf", ".docx", ".txt", ".md"]
+    
+    # Chunking Strategy Selection
+    CHUNKING_STRATEGY: Literal["token", "semantic"] = "semantic"  # "token" or "semantic"
+    
+    # Semantic Chunking Settings (when CHUNKING_STRATEGY = "semantic")
+    SEMANTIC_SIMILARITY_THRESHOLD: float = 0.4  # Lower = more breaks, better precision (0.3-0.7 recommended)
+    SEMANTIC_MAX_CHUNK_SIZE: int = 600  # Maximum tokens per semantic chunk (smaller = more precise)
+    SEMANTIC_MIN_CHUNK_SIZE: int = 80  # Minimum tokens per semantic chunk
+    SEMANTIC_OVERLAP_SENTENCES: int = 3  # Number of sentences to overlap between chunks (more context)
     
     # ===========================================
     # Retrieval Settings
     # ===========================================
-    TOP_K_RETRIEVAL: int = 10
-    TOP_K_RERANK: int = 5
+    TOP_K_RETRIEVAL: int = 40  # More candidates for stable retrieval
+    TOP_K_RERANK: int = 6  # Final results returned after reranking (more context)
     USE_RERANKER: bool = True
     RERANKER_MODEL: str = "BAAI/bge-reranker-base"
+    # CPU OPTIMIZED: Force reranker to run on CPU (lightweight cross-encoder)
+    RERANKER_DEVICE: Literal["cpu", "cuda"] = "cpu"
     USE_HYBRID_SEARCH: bool = True
-    HYBRID_ALPHA: float = 0.5  # Balance between vector and keyword search
+    HYBRID_ALPHA: float = 0.7  # Favor semantic search (0.7) over keyword (0.3)
     # Minimum cosine similarity score (0-1) to include a chunk in results.
-    # Chunks below this threshold are discarded before reranking.
-    # Raise to 0.4+ for stricter answers; lower to 0.2 if recall is too low.
-    RETRIEVAL_SCORE_THRESHOLD: float = 0.30
+    # Set to 0.3 to filter out irrelevant chunks early
+    RETRIEVAL_SCORE_THRESHOLD: float = 0.3  # Filter low-quality matches
 
     # ===========================================
     # Conversational Query Rewriting
@@ -249,13 +242,6 @@ class Settings(BaseSettings):
                 return json.loads(v)
             # Handle comma-separated format
             return [key.strip() for key in v.split(',') if key.strip()]
-        return v
-    
-    @field_validator('VLLM_QUANTIZATION', mode='before')
-    @classmethod
-    def parse_vllm_quantization(cls, v):
-        if isinstance(v, str) and not v.strip():
-            return None
         return v
     
     class Config:

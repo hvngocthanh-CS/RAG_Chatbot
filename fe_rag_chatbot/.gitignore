@@ -1,5 +1,8 @@
-bin/
-obj/
-.vs/
-*.user
-*.suo
+node_modules/
+dist/
+.env.local
+.env.*.local
+*.local
+.DS_Store
+.vscode/
+.idea/

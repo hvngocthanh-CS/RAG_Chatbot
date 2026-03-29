@@ -12,6 +12,7 @@ from pathlib import Path
 from backend.config import settings
 from backend.services.document_parser import DocumentParser
 from backend.services.chunker import TextChunker
+from backend.services.semantic_chunker import SemanticChunker
 from backend.services.table_extractor import TableExtractor
 from backend.services import get_service
 
@@ -32,10 +33,20 @@ class DocumentIngestionService:
     
     def __init__(self):
         self.parser = DocumentParser()
-        self.chunker = TextChunker(
-            chunk_size=settings.CHUNK_SIZE,
-            chunk_overlap=settings.CHUNK_OVERLAP
-        )
+        
+        # Choose chunking strategy based on config
+        if settings.CHUNKING_STRATEGY == "semantic":
+            logger.info("Using SEMANTIC chunking strategy")
+            self.chunker = None  # Will be set with embedding service
+            self.use_semantic = True
+        else:
+            logger.info("Using TOKEN-BASED chunking strategy")
+            self.chunker = TextChunker(
+                chunk_size=settings.CHUNK_SIZE,
+                chunk_overlap=settings.CHUNK_OVERLAP
+            )
+            self.use_semantic = False
+        
         self.table_extractor = TableExtractor()
     
     @property
@@ -62,19 +73,32 @@ class DocumentIngestionService:
             Processing results including chunk count
         """
         try:
-            logger.info(f"Processing document: {metadata['filename']}")
-            
             # Step 1: Parse document
             parsed_content = await self.parser.parse(file_path)
             
             # Step 2: Extract tables
             tables = self.table_extractor.extract_tables(parsed_content)
             
-            # Step 3: Chunk text content
-            text_chunks = self.chunker.chunk_text(
-                parsed_content["text_blocks"],
-                metadata
-            )
+            # Step 3: Chunk text content (strategy-based)
+            if self.use_semantic:
+                # Semantic chunking requires embedding service
+                semantic_chunker = SemanticChunker(
+                    embedding_service=self.embedding_service,
+                    max_chunk_size=settings.SEMANTIC_MAX_CHUNK_SIZE,
+                    min_chunk_size=settings.SEMANTIC_MIN_CHUNK_SIZE,
+                    similarity_threshold=settings.SEMANTIC_SIMILARITY_THRESHOLD,
+                    overlap_sentences=settings.SEMANTIC_OVERLAP_SENTENCES
+                )
+                text_chunks = await semantic_chunker.chunk_text_semantic(
+                    parsed_content["text_blocks"],
+                    metadata
+                )
+            else:
+                # Token-based chunking (original)
+                text_chunks = self.chunker.chunk_text(
+                    parsed_content["text_blocks"],
+                    metadata
+                )
             
             # Step 4: Convert tables to chunks
             table_chunks = self._process_tables(tables, metadata)

@@ -1,9 +1,8 @@
 """
-Production-ready LLM Service with vLLM Integration.
+Production-ready LLM Service with vLLM/Ollama Integration.
 
 Features:
-- vLLM as primary LLM server
-- OpenAI fallback support
+- vLLM or Ollama as LLM server
 - Circuit breaker pattern
 - Retry with exponential backoff
 - Request tracing & metrics
@@ -29,74 +28,50 @@ logger = logging.getLogger(__name__)
 # System Prompts
 # ===========================================
 
-SYSTEM_PROMPT = """You are a STRICT enterprise document assistant for internal company use. Your primary responsibility is to provide ONLY information explicitly stated in the provided documents.
+SYSTEM_PROMPT = """You are a precise document assistant. Answer ONLY from provided context.
 
-⚠️ CRITICAL RULES - NEVER VIOLATE:
-1. ABSOLUTE GROUNDING: Answer ONLY from provided context - ZERO external knowledge allowed
-2. EXPLICIT REFUSAL: If information is not in documents, you MUST refuse using the template below
-3. NO INFERENCE: Do not infer, assume, or extrapolate beyond what's explicitly written
-4. CITATIONS: Cite sources when page numbers are available [Source N: filename, Page X]. If page is N/A, still cite with [Source N: filename]
+RULES:
+1. Answer ONLY based on the provided context - no external knowledge
+2. Multi-context questions: Check ALL relevant policies (e.g., probation + WFH)
+3. Tables first for numerical data
+4. Cite: [Source N: filename, pX]
 
-REFUSAL TEMPLATE (Use when information is not in documents):
-"I cannot find information about [TOPIC] in the provided documents. The available documents cover [BRIEF SUMMARY OF WHAT IS AVAILABLE]. Please provide relevant documents or rephrase your question to align with available information."
+FORMAT (CRITICAL - Follow exactly):
+- Start with direct verdict/answer
+- Then bullet points for reasoning
+- End with brief conclusion
+- NO repetition of the same information
+- Maximum 8-10 sentences total
 
-STRICT VERIFICATION CHECKLIST (Before answering):
-☐ Is the information EXPLICITLY stated in the context?
-☐ Can I cite the source (filename required, page optional)?
-☐ Am I making ANY assumptions or using external knowledge? → If yes, REFUSE
-☐ Does the question fall outside document scope? → If yes, use REFUSAL TEMPLATE
+KEYWORD DETECTION:
+- "new hire" or "N months" → probation policy
+- "late/absent" → attendance + disciplinary
+- Numbers/amounts → tables
 
-REASONING PROCESS:
-1. VERIFY: Check if question can be answered from provided context
-2. LOCATE: Find exact text/data in source documents
-3. CITE: Identify source filename (and page if available)
-4. ANSWER: Provide direct answer with citations
+EXAMPLES:
 
-PROHIBITED BEHAVIORS:
-❌ Using general knowledge (e.g., "Python is a programming language")
-❌ Answering current events (time-sensitive questions)
-❌ Inferring information not explicitly stated
-❌ Providing answers without source citations
-❌ Making assumptions about missing data
-❌ Answering questions about entities not mentioned in documents
+Ex1 - Simple:
+Q: Q2 revenue?
+A: $15.2M, up 23% from Q1 $12.4M [Source 1: Q2_Report.pdf, p3]
 
-ANSWER STYLE:
-✓ Direct and factual - quote exact phrases when possible
-✓ Citations in EVERY sentence with factual claims (include page if available, filename is required)
-✓ Use bullet points for clarity
-✓ Acknowledge uncertainty when documents conflict
-✓ Professional, concise language
+Ex2 - Multi-context (FOLLOW THIS FORMAT):
+Q: New hire in IT Ops WFH 3 days/week during month 2?
+A: **Non-compliant**
 
-FEW-SHOT EXAMPLES:
+- Probation policy: New hires in 90-day probation cannot WFH [Source 1: HR_Policy.pdf, p5]
+- WFH policy: IT Ops requires 3 in-office days/week [Source 1: HR_Policy.pdf, p8]
 
-Example 1 - CORRECT Factual Answer:
-Context: "[Source 1: Q2_Report.pdf, Page 3] The company's revenue in Q2 2024 was $15.2 million, representing a 23% increase from Q1's $12.4 million."
-Question: What was the Q2 revenue growth?
-Answer: The Q2 2024 revenue was $15.2 million, representing a 23% quarter-over-quarter growth from Q1's $12.4 million [Source 1: Q2_Report.pdf, Page 3].
+**Reason**: Employee in month 2/3 of probation. Must complete probation first.
 
-Example 2 - CORRECT Comparison:
-Context: "[Source 1: TechSpec.pdf, Page 5] Model A has 8GB RAM and 256GB storage. [Source 2: TechSpec.pdf, Page 7] Model B has 16GB RAM and 512GB storage."
-Question: Compare Model A and Model B specifications.
-Answer: Based on the technical specifications:
-- RAM: Model A has 8GB while Model B has 16GB (2x more) [Source 1: TechSpec.pdf, Page 5; Source 2: TechSpec.pdf, Page 7]
-- Storage: Model A has 256GB while Model B has 512GB (2x more) [Source 1: TechSpec.pdf, Page 5; Source 2: TechSpec.pdf, Page 7]
+Ex3 - Table:
+Q: Staff meal allowance, 20 days?
+A: VND 800,000/month [Source 1: HR_Policy.pdf, Table 6.2, p6]
 
-Example 3 - CORRECT Refusal (Insufficient Information):
-Context: "[Source 1: Overview.pdf, Page 2] The product was launched in March 2024."
-Question: What was the launch budget for the product?
-Answer: I cannot find information about the launch budget in the provided documents. The available documents mention the product launch date (March 2024) but do not contain financial or budget details [Source 1: Overview.pdf, Page 2]. Please provide budget/financial documents to answer this question.
+Ex4 - Missing:
+Q: Launch budget?
+A: Not found in documents. Only launch date (March 2024) mentioned [Source 1: Overview.pdf, p2]
 
-Example 4 - CORRECT Refusal (Out of Scope):
-Context: "[Source 1: CompanyPolicy.pdf, Page 1-5] Various internal HR policies."
-Question: What is the current stock price of our company?
-Answer: I cannot find information about stock prices in the provided documents. The available documents cover internal HR policies only. Stock price information would require access to financial market data or investor relations documents.
-
-Example 5 - CORRECT Refusal (External Knowledge):
-Context: "[Source 1: ProjectPlan.pdf, Page 2] We will use Python for the backend."
-Question: What is Python used for in general?
-Answer: I cannot answer general questions about Python. I can only provide information from the uploaded documents. According to the project plan, Python will be used for the backend in this specific project [Source 1: ProjectPlan.pdf, Page 2].
-
-Remember: When in doubt, REFUSE. Accuracy and honesty are more valuable than attempting to answer every question."""
+Be concise. NO repetition."""
 
 
 # ===========================================
@@ -287,11 +262,10 @@ class LLMMetrics:
 
 class LLMService:
     """
-    Production-ready LLM Service with vLLM integration.
+    Production-ready LLM Service with vLLM/Ollama integration.
     
     Features:
-    - vLLM as primary inference server
-    - OpenAI fallback support
+    - vLLM or Ollama as inference server
     - Circuit breaker for resilience
     - Retry with exponential backoff
     - Metrics collection
@@ -443,8 +417,6 @@ class LLMService:
                         self.vllm_circuit.record_success()
                     elif provider == "ollama":
                         self.ollama_circuit.record_success()
-                    else:
-                        self.openai_circuit.record_success()
                     return response, is_fallback_local
                 except Exception as e:
                     # Record failure
@@ -686,7 +658,7 @@ ANSWER:"""
             "llm_metrics": self.metrics.get_stats(),
             "circuits": {
                 "vllm": self.vllm_circuit.get_stats(),
-                "openai": self.openai_circuit.get_stats()
+                "ollama": self.ollama_circuit.get_stats()
             },
             "active_requests": self._active_requests,
             "max_concurrent_requests": self._max_concurrent

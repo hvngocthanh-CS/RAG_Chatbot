@@ -1,379 +1,243 @@
-# RAG Enterprise Chatbot
+# RAG Chatbot - Ollama Local Setup
 
-A **production-ready Retrieval-Augmented Generation (RAG)** chatbot system for enterprise document question answering. This project demonstrates modern AI engineering best practices with **vLLM integration** for high-performance LLM inference.
+Production-ready RAG (Retrieval-Augmented Generation) chatbot system for Windows using **Ollama** for local LLM inference.
 
-![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
-![vLLM](https://img.shields.io/badge/vLLM-0.4+-orange.svg)
-![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)
-![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+## Features
 
-## 🎯 Key Features
+- **Ollama Integration**: Native Windows LLM inference with GPU support
+- **HuggingFace Embeddings**: High-quality BGE embeddings (CPU)
+- **ChromaDB**: Fast vector database for document search
+- **Streaming Responses**: Real-time token streaming
+- **Conversational Memory**: Multi-turn conversations with context
+- **Document Processing**: PDF, DOCX, TXT, MD support
+- **Resilience Patterns**: Circuit breaker, retry with backoff
 
-### Core RAG Capabilities
-- **Multi-format Document Support**: PDF, DOCX, TXT, Markdown
-- **Table-Aware Processing**: Intelligent extraction and representation of tabular data
-- **Hybrid Search**: Combines vector similarity with keyword search (RRF fusion)
-- **Reranking**: Cross-encoder model for improved retrieval accuracy
-- **Streaming Responses**: Real-time token streaming for better UX
-- **Conversation Memory**: Multi-turn conversation support
+## Requirements
 
-### Production-Ready Features
-- **vLLM Integration**: High-performance LLM inference with OpenAI-compatible API
-- **Circuit Breaker Pattern**: Prevents cascade failures with automatic recovery
-- **Retry with Exponential Backoff**: Resilient network operations
-- **OpenAI Fallback**: Automatic fallback when vLLM is unavailable
-- **Prometheus Metrics**: Full observability with Grafana dashboards
-- **Structured JSON Logging**: Production logging for log aggregators
-- **Rate Limiting**: Protect API from overload
-- **Health Checks**: Kubernetes-ready liveness/readiness probes
+- Windows 10/11
+- NVIDIA GPU (RTX 3060 or better)
+- Python 3.10+
+- Ollama for Windows
 
-## 🏗️ System Architecture
+## Quick Start
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         WPF Desktop Client                          │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────────────┐│
-│  │ Upload Docs │  │  Chat Input  │  │  Streaming Response Display ││
-│  └─────────────┘  └──────────────┘  └─────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────────┘
-                              │ HTTP/SSE
-                              ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                        FastAPI Backend                              │
-│  ┌───────────────────────────────────────────────────────────────┐ │
-│  │  Circuit Breaker │ Rate Limiter │ Metrics │ Structured Logs   │ │
-│  └───────────────────────────────────────────────────────────────┘ │
-│  ┌───────────────────────────────────────────────────────────────┐ │
-│  │                      API Layer                                 │ │
-│  │   POST /upload-document   POST /chat   GET /metrics            │ │
-│  └───────────────────────────────────────────────────────────────┘ │
-│                              │                                      │
-│  ┌───────────────────────────────────────────────────────────────┐ │
-│  │                    RAG Pipeline                                │ │
-│  │  ┌─────────┐  ┌──────────┐  ┌─────────┐  ┌─────────────────┐  │ │
-│  │  │ Ingestion│──│ Embedding│──│ Retrieval│──│ LLM Generation │  │ │
-│  │  │ Service │  │ Service  │  │ Service │  │    Service      │  │ │
-│  │  └─────────┘  └──────────┘  └─────────┘  └─────────────────┘  │ │
-│  └───────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
-         │                │                │
-         ▼                ▼                ▼
-   ┌──────────┐    ┌──────────┐     ┌──────────┐
-   │  Chroma  │    │  Redis   │     │  vLLM    │
-   │ /Qdrant  │    │  Cache   │     │ Server   │
-   └──────────┘    └──────────┘     └──────────┘
-                                         │
-                                    ┌────┴────┐
-                                    │ Fallback│
-                                    │ OpenAI  │
-                                    └─────────┘
-```
-   │ /Qdrant  │    │  Cache   │     │ /Local   │
-   └──────────┘    └──────────┘     │   LLM    │
-                                    └──────────┘
+### 1. Install Ollama
+
+```powershell
+# Download from website
+https://ollama.ai/download
+
+# Or use winget
+winget install Ollama.Ollama
 ```
 
-## 🚀 Quick Start
+### 2. Pull a model
 
-### Prerequisites
+```powershell
+# Phi-3 (recommended, 3.8B parameters)
+ollama pull phi3
 
-- Python 3.11+
-- .NET 8.0 SDK (for WPF frontend)
-- Redis (optional, for caching)
-- NVIDIA GPU (for vLLM) or OpenAI API key (fallback)
+# Other options
+ollama pull llama3.2    # Meta's Llama 3.2
+ollama pull qwen2.5     # Alibaba Qwen
+ollama pull mistral     # Mistral 7B
+```
 
-### 1. Backend Setup
+### 3. Setup Python environment
 
-```bash
-# Clone and navigate to project
-cd rag_chatbot
-
-# Create virtual environment
-python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/Mac
+```powershell
+# Create conda environment
+conda create -n rag_chatbot python=3.10 -y
+conda activate rag_chatbot
 
 # Install dependencies
 pip install -r requirements.txt
-
-# Configure environment
-copy .env.example .env
-# Edit .env with your settings
 ```
 
-### 2. Start vLLM Server (Local LLM)
+### 4. Configure .env
 
-```bash
-# Option A: Using deployment script (recommended)
-python scripts/deploy_vllm.py start --model microsoft/Phi-3-mini-4k-instruct
+The `.env` file is already configured for Ollama:
 
-# Option B: Using Docker directly
-docker run -d --gpus all \
-    -p 8001:8000 \
-    --name rag-vllm \
-    vllm/vllm-openai:latest \
-    --model microsoft/Phi-3-mini-4k-instruct \
-    --trust-remote-code
-
-# Check server status
-python scripts/deploy_vllm.py status
-
-# View recommended models
-python scripts/deploy_vllm.py models
+```env
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OLLAMA_MODEL=phi3
 ```
 
-### 3. Run Backend API
+### 5. Start the system
 
-```bash
-python scripts/run_server.py
+```powershell
+# Start Ollama + RAG Backend
+scripts\start_ollama.bat
 ```
 
-### 4. Frontend Setup (WPF)
+The script will:
+1. Check Ollama installation
+2. Start Ollama service
+3. Download model if needed
+4. Start RAG backend (port 8000)
 
-```bash
-# Navigate to frontend folder (separate project)
-cd ../fe_rag_chatbot
+### 6. Test
 
-# Restore packages
-dotnet restore
+```powershell
+# Health check
+curl http://localhost:8000/health
 
-# Build
-dotnet build
+# Upload document (example)
+curl -X POST http://localhost:8000/api/v1/documents/upload \
+  -F "file=@document.pdf"
 
-# Run
-dotnet run
+# Chat
+curl -X POST http://localhost:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d "{\"question\": \"What is in the document?\", \"stream\": false}"
 ```
 
-### 3. Using Docker
-
-```bash
-cd docker
-
-# Start all services
-docker-compose up -d
-
-# Start with Qdrant (instead of Chroma)
-docker-compose --profile qdrant up -d
-```
-
-## 📁 Project Structure
+## Project Structure
 
 ```
-# Backend (Python/FastAPI)
 rag_chatbot/
 ├── backend/
-│   ├── api/
-│   │   ├── main.py              # FastAPI application
-│   │   └── routes/
-│   │       ├── chat.py          # Chat endpoints
-│   │       ├── documents.py     # Document management
-│   │       └── health.py        # Health checks
-│   ├── config/
-│   │   └── settings.py          # Configuration management
-│   ├── services/
-│   │   ├── ingestion.py         # Document processing
-│   │   ├── document_parser.py   # PDF/DOCX parsing
-│   │   ├── chunker.py           # Text chunking
-│   │   ├── table_extractor.py   # Table extraction
-│   │   ├── embeddings.py        # Embedding generation
-│   │   ├── vector_store.py      # Vector DB operations
-│   │   ├── retrieval.py         # Hybrid search
-│   │   ├── reranker.py          # Cross-encoder reranking
-│   │   ├── llm.py               # LLM integration
-│   │   ├── cache.py             # Redis caching
-│   │   └── conversation.py      # Conversation memory
-│   └── evaluation/
-│       ├── evaluator.py         # RAG evaluation
-│       └── metrics.py           # Quality metrics
+│   ├── api/          # FastAPI routes
+│   ├── services/     # Core services (LLM, embeddings, retrieval)
+│   └── config/       # Configuration
+├── data/
+│   ├── uploads/      # Uploaded documents
+│   ├── chroma_db/    # Vector database
+│   └── processed/    # Processed documents
 ├── scripts/
-│   ├── ingest_documents.py      # CLI document ingestion
-│   ├── run_evaluation.py        # Evaluation runner
-│   └── run_server.py            # Server starter
-├── docker/
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   └── docker-compose.dev.yml
-├── tests/
-├── requirements.txt
-├── .env.example
-└── README.md
-
-# Frontend (WPF C#/.NET 8) - Separate Project
-fe_rag_chatbot/
-├── App.xaml                      # Application resources
-├── MainWindow.xaml               # Main chat interface
-├── RAGChatbot.csproj             # Project file
-├── appsettings.json              # API configuration
-├── ViewModels/
-│   └── MainViewModel.cs          # MVVM ViewModel
-├── Models/
-│   └── Models.cs                  # Data models
-├── Services/
-│   ├── ChatService.cs             # Chat API client
-│   └── DocumentService.cs         # Document API client
-└── Converters/
-    └── Converters.cs              # XAML converters
+│   ├── start_ollama.bat      # Main startup script
+│   ├── run_server.py         # Backend server
+│   ├── ingest_documents.py   # Document ingestion
+│   └── evaluate_rag.py       # RAG evaluation
+└── .env              # Configuration
 ```
 
-## 🔧 Configuration
+## Architecture
 
-Key configuration options in `.env`:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `LLM_PROVIDER` | LLM provider (openai/local) | openai |
-| `OPENAI_API_KEY` | OpenAI API key | - |
-| `EMBEDDING_MODEL` | Embedding model | BAAI/bge-large-en-v1.5 |
-| `VECTOR_DB_TYPE` | Vector DB (chroma/qdrant) | chroma |
-| `USE_RERANKER` | Enable reranking | true |
-| `USE_HYBRID_SEARCH` | Enable hybrid search | true |
-| `USE_CACHE` | Enable Redis caching | true |
-
-## 📖 API Documentation
-
-Once the server is running, access the interactive API docs:
-
-- **Swagger UI**: http://localhost:8000/api/v1/docs
-- **ReDoc**: http://localhost:8000/api/v1/redoc
-
-### Key Endpoints
-
-#### Upload Document
-```http
-POST /api/v1/documents/upload
-Content-Type: multipart/form-data
-
-file: <document_file>
-department: (optional) HR
-tags: (optional) quarterly,finance
+```
+┌─────────────┐     ┌─────────────┐     ┌──────────────┐
+│   Ollama    │────▶│  RAG API    │────▶│   ChromaDB   │
+│   (GPU)     │     │  (FastAPI)  │     │  (Vectors)   │
+└─────────────┘     └─────────────┘     └──────────────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │  HuggingFace │
+                    │  Embeddings  │
+                    │    (CPU)     │
+                    └──────────────┘
 ```
 
-#### Chat
-```http
-POST /api/v1/chat
-Content-Type: application/json
+## Configuration
 
-{
-  "question": "What was the Q1 revenue?",
-  "conversation_id": null,
-  "stream": true
-}
+Key settings in `.env`:
+
+```env
+# LLM
+LLM_PROVIDER=ollama
+OLLAMA_MODEL=phi3
+LLM_TEMPERATURE=0.1
+LLM_MAX_TOKENS=512
+
+# Embeddings
+EMBEDDING_MODEL=BAAI/bge-base-en-v1.5
+EMBEDDING_DEVICE=cpu
+
+# Retrieval
+TOP_K_RETRIEVAL=8
+TOP_K_RERANK=3
+USE_RERANKER=True
 ```
 
-## 🔍 Document Processing Pipeline
+## Useful Commands
 
-### Text Extraction
-1. **PDF**: Uses pypdf + pdfplumber for text and tables
-2. **DOCX**: Uses python-docx with structure preservation
-3. **TXT/MD**: Direct parsing with header detection
+### Document Ingestion
 
-### Table Handling
-Tables are converted to row-based text representation:
-```
-Table: Sales Data
+```powershell
+# Ingest single file
+python scripts/ingest_documents.py path/to/document.pdf
 
-Row 1:
-  Product: A
-  Price: 10
-  Country: Japan
+# Ingest folder
+python scripts/ingest_documents.py path/to/documents/
 
-Row 2:
-  Product: B
-  Price: 20
-  Country: USA
+# With metadata
+python scripts/ingest_documents.py document.pdf --department HR --tags "policy,onboarding"
 ```
 
-### Chunking Strategy
-- **Token-based**: ~500 tokens per chunk with 50-token overlap
-- **Boundary-aware**: Respects paragraphs and sentences
-- **Heading-preserving**: Keeps section context
+### Evaluation
 
-## 🔬 Evaluation
+```powershell
+# Run full evaluation
+python scripts/evaluate_rag.py
 
-Industry-standard evaluation framework: See [RAG_EVALUATION_PROFESSIONAL.md](RAG_EVALUATION_PROFESSIONAL.md)
+# Quick test (5 samples)
+python scripts/evaluate_rag.py --limit 5
 
-**Comprehensive Framework (16 metrics across 3 dimensions):**
-- 5 Retrieval Metrics (Precision@5, Recall@5, F1, MRR, NDCG)
-- 5 Generation Metrics (BLEU, ROUGE, Semantic Sim, Relevancy, Faithfulness)
-- 6 End-to-End Metrics (Context Precision/Recall/F1, Hallucination, Citation, Correctness)
-
-**Quick Start:**
-```bash
-# Upload document
-python scripts/ingest_documents.py paper.pdf
-
-# Run evaluation
-python scripts/evaluate_rag.py --limit 5    # Test 5 questions
-python scripts/evaluate_rag.py              # Full 26 questions
-python scripts/evaluate_rag.py --save-report # Save JSON report
+# Save report
+python scripts/evaluate_rag.py --save-report
 ```
 
-**Output:** Detailed metrics table + summary statistics + JSON report
+### Ollama Management
 
-## 🎨 Frontend Features
+```powershell
+# List models
+ollama list
 
-The WPF desktop application includes:
+# Check running models
+ollama ps
 
-- **Document Upload**: Drag-and-drop or file picker
-- **Real-time Streaming**: Watch answers appear token by token
-- **Source Citations**: See which documents were used
-- **Conversation History**: Multi-turn chat support
-- **Material Design**: Modern, clean interface
+# Remove model
+ollama rm model_name
 
-## 🔒 Advanced Features
-
-### Hybrid Search (RRF)
-Combines vector similarity with keyword matching using Reciprocal Rank Fusion:
-```python
-score = α/k+rank_vector + (1-α)/k+rank_keyword
+# Update model
+ollama pull model_name
 ```
 
-### Reranking
-Uses BGE-reranker cross-encoder to re-score retrieved chunks based on actual question-passage relevance.
+## Troubleshooting
 
-### Conversation Memory
-Maintains conversation context for follow-up questions with automatic cleanup of old conversations.
+### Ollama not responding
 
-### Response Caching
-Redis-based caching with MD5 query hashing for repeated questions.
+```powershell
+# Check if Ollama service is running
+curl http://localhost:11434
 
-## 🧪 Testing
-
-```bash
-# Run tests
-pytest tests/ -v
-
-# Run with coverage
-pytest tests/ --cov=backend --cov-report=html
+# Restart Ollama service
+# Stop the ollama.exe process and restart
+scripts\start_ollama.bat
 ```
 
-## 📊 Performance Optimization
+### Out of GPU memory
 
-- **Batch Embedding**: Process documents in batches of 32
-- **Async Operations**: All I/O operations are async
-- **Connection Pooling**: Reuse database connections
-- **Model Caching**: Pre-load embedding and reranker models
+Reduce context length in `.env`:
+```env
+LLM_MAX_TOKENS=256  # Reduce from 512
+```
 
-## 🤝 Contributing
+### Slow responses
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests
-5. Submit a pull request
+1. Use smaller model: `ollama pull phi3` (3.8B)
+2. Reduce retrieval: `TOP_K_RETRIEVAL=5`
+3. Disable reranker: `USE_RERANKER=False`
 
-## 📄 License
+## Documentation
 
-MIT License - see LICENSE file for details.
+- [WINDOWS_NO_DOCKER.md](WINDOWS_NO_DOCKER.md) - Detailed Windows setup guide
+- [HUONG_DAN_CHAY.md](HUONG_DAN_CHAY.md) - Vietnamese setup guide
+- [RAG_EVALUATION_PROFESSIONAL.md](RAG_EVALUATION_PROFESSIONAL.md) - RAG evaluation metrics
+- [EVALUATION_QUICK_START.md](EVALUATION_QUICK_START.md) - Quick evaluation guide
 
-## 🙏 Acknowledgments
+## Archived vLLM Documentation
 
-- [LangChain](https://langchain.com/) for RAG patterns inspiration
-- [Sentence Transformers](https://www.sbert.net/) for embedding models
-- [ChromaDB](https://www.trychroma.com/) for vector storage
-- [FastAPI](https://fastapi.tiangolo.com/) for the excellent web framework
+Previous vLLM-based documentation has been archived to `backup_/` directory:
+- `backup_/README.md` - Original vLLM setup
+- `backup_/PRODUCTION_DEPLOY.md` - Production deployment
+- `backup_/QUICKSTART.md` - Quick start guide
 
----
+## License
 
-**Built with ❤️ for AI Engineering interviews**
+MIT
+
+## Support
+
+For issues or questions, please check the documentation in the `docs/` folder or refer to [WINDOWS_NO_DOCKER.md](WINDOWS_NO_DOCKER.md) for Windows-specific guidance.

@@ -78,6 +78,25 @@ class ChromaVectorStore(BaseVectorStore):
     
     async def initialize(self):
         """Initialize ChromaDB client."""
+        # Fix: ChromaDB và transformers yêu cầu onnxruntime module
+        # Tạo mock module với đủ attributes để bypass các checks
+        import sys
+        import types
+        
+        # Tạo dummy onnxruntime module nếu chưa có
+        if 'onnxruntime' not in sys.modules:
+            onnxruntime_mock = types.ModuleType('onnxruntime')
+            # Set các attributes cần thiết
+            onnxruntime_mock.__spec__ = types.SimpleNamespace(
+                name='onnxruntime',
+                loader=None,
+                origin=None,
+                submodule_search_locations=None
+            )
+            onnxruntime_mock.__version__ = '1.16.0'
+            onnxruntime_mock.__file__ = '<mock>'
+            sys.modules['onnxruntime'] = onnxruntime_mock
+        
         import chromadb
         from chromadb.config import Settings as ChromaSettings
         
@@ -91,9 +110,20 @@ class ChromaVectorStore(BaseVectorStore):
         )
         
         # Get or create collection
+        # embedding_function=None vì đã dùng HuggingFace embedding riêng
+        # Tránh load default ONNXMiniLM_L6_V2 (yêu cầu onnxruntime)
+        from chromadb.utils.embedding_functions import EmbeddingFunction
+        
+        class NoOpEmbedding(EmbeddingFunction):
+            """Dummy embedding function - không dùng vì đã có HuggingFace embedding"""
+            def __call__(self, input: list[str]) -> list[list[float]]:
+                # Trả về embedding giả, thực tế không dùng
+                return [[0.0] * settings.EMBEDDING_DIMENSION for _ in input]
+        
         self.collection = self.client.get_or_create_collection(
             name=settings.COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"}  # Use cosine similarity
+            metadata={"hnsw:space": "cosine"},  # Use cosine similarity
+            embedding_function=NoOpEmbedding()  # Disable default embedding
         )
         
         logger.info(f"ChromaDB initialized. Collection: {settings.COLLECTION_NAME}")

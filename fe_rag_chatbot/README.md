@@ -1,74 +1,70 @@
-# RAG Chatbot - WPF Frontend
+# RAG Chatbot Frontend
 
-A modern WPF desktop client for the RAG Enterprise Chatbot system.
+Modern React + TypeScript + Tailwind CSS frontend for the RAG (Retrieval-Augmented Generation) Chatbot.
 
-## 🛠️ Requirements
+## Features
 
-- .NET 8.0 SDK
-- Windows 10/11
+- Clean, minimal UI built with Tailwind CSS
+- Real-time streaming chat responses
+- Document upload support (PDF, DOCX, TXT, Markdown)
+- Responsive design for all devices
+- Type-safe with TypeScript
 
-## 🚀 Quick Start
+## Quick Start
 
-```bash
-# 1. Start backend API first
-cd ..\rag_chatbot
-python scripts\run_server.py
+### Prerequisites
+- Node.js 18+
+- npm or yarn
 
-# 2. In a new terminal, start frontend
-cd ..\fe_rag_chatbot
-dotnet restore
-dotnet build
-dotnet run --project RAGChatbot.csproj
-```
-
-## ⚙️ Configuration
-
-Edit `appsettings.json` to configure the API endpoint:
-
-```json
-{
-  "ApiSettings": {
-    "BaseUrl": "http://localhost:8000/api/v1",
-    "TimeoutSeconds": 120
-  }
-}
-```
-
-## 📁 Project Structure
-
-```
-fe_rag_chatbot/
-├── App.xaml              # Application resources & themes
-├── MainWindow.xaml       # Main chat interface
-├── RAGChatbot.csproj     # Project file
-├── appsettings.json      # API configuration
-├── ViewModels/
-│   └── MainViewModel.cs  # MVVM ViewModel
-├── Models/
-│   └── Models.cs         # Data models
-├── Services/
-│   ├── ChatService.cs    # Chat API client (SSE streaming)
-│   └── DocumentService.cs # Document upload/management
-└── Converters/
-    └── Converters.cs     # XAML value converters
-```
-
-## ✨ Features
-
-- **Real-time Streaming**: Server-Sent Events (SSE) for token-by-token response
-- **Document Management**: Upload, view, and delete documents
-- **Source Citations**: View which documents were used to answer
-- **Conversation History**: Multi-turn chat support
-- **Material Design**: Modern UI with MaterialDesign theme
-
-## 🔗 Backend
-
-Make sure the RAG Chatbot backend is running at the configured URL before starting the frontend.
+### Installation
 
 ```bash
-# In the rag_chatbot folder
-cd ../rag_chatbot
-python scripts/run_server.py
+npm install
 ```
 
-If the backend runs on a different host or port, update `BaseUrl` in `appsettings.json` before launching the desktop app.
+### Development
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+### Build
+
+```bash
+npm run build
+```
+
+The build output will be in the `dist/` directory.
+
+### Environment Variables
+
+Create a `.env.local` file:
+
+```env
+REACT_APP_API_URL=http://localhost:8000
+```
+
+## Project Structure
+
+```
+src/
+├── components/       # React components
+├── services/        # API service layer
+├── types/           # TypeScript types
+├── App.tsx          # Main app component
+└── main.tsx         # Entry point
+```
+
+## Technologies
+
+- **React 18** - UI library
+- **TypeScript** - Type safety
+- **Vite** - Build tool
+- **Tailwind CSS** - Styling
+- **Axios** - HTTP client
+
+## License
+
+MIT

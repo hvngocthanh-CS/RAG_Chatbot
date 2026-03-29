@@ -107,6 +107,26 @@ class QueryUnderstandingService:
             r"summarize\s+(this|the)\s+(document|file|report|policy)",
             r"table\s+of\s+contents",
         ],
+        # Intent for numeric/tabular data questions
+        "numeric": [
+            r"how\s+(many|much|long)",
+            r"(probation|trial)\s+(period|time|duration)",
+            r"\d+\s+(days?|weeks?|months?|years?)",
+            r"(duration|length|time|period)\s+(of|for)",
+            r"(what|how)\s+(is|are)\s+the\s+(time|duration|period|number|amount)",
+            r"according\s+to\s+(the\s+)?table",
+            r"as\s+(shown|stated|specified)\s+in\s+(the\s+)?table",
+        ],
+        
+        # Multi-context questions requiring multi-hop reasoning
+        "multi_context": [
+            r"new\s+hire",
+            r"during\s+(their|my|the)\s+(first|second|third)\s+month",
+            r"probation\s+(period|employee)",
+            r"trial\s+(period|employee)",
+            r"during\s+probation",
+            r"while\s+on\s+probation",
+        ],
     }
 
     def analyze_query(self, query: str) -> QueryIntent:
@@ -199,6 +219,15 @@ class QueryUnderstandingService:
                 boost_metadata={"page_number": 5.0}
             )
 
+        elif intent == "numeric":
+            # Numeric/tabular data - strongly boost table chunks
+            return QueryIntent(
+                intent_type="numeric",
+                confidence=0.90,
+                page_filter=None,
+                boost_metadata={"table": 6.0}  # Special flag for table boost
+            )
+
         return QueryIntent(intent_type=intent, confidence=0.80)
 
     def expand_query(self, query: str, intent: QueryIntent) -> str:
@@ -220,6 +249,7 @@ class QueryUnderstandingService:
             "requirement": ["requirement", "needed", "must provide", "eligibility", "criteria", "submit"],
             "definition": ["definition", "meaning", "refers to", "is defined as", "stands for"],
             "summary": ["summary", "overview", "purpose", "scope", "introduction", "about"],
+            "numeric": ["table", "duration", "period", "days", "weeks", "months", "time", "number", "amount"],
         }
 
         if intent.intent_type in expansions:

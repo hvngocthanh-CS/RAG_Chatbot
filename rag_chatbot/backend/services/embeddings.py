@@ -14,15 +14,13 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingService:
     """
-    Service for generating text embeddings.
+    Service for generating text embeddings using HuggingFace models.
     
     Supports:
     - HuggingFace models (BGE, E5, Instructor)
-    - OpenAI embeddings
     
     Features:
     - Batch processing
-    - Caching
     - Automatic model loading
     """
     
@@ -42,8 +40,8 @@ class EmbeddingService:
         try:
             if self.provider == "huggingface":
                 await asyncio.wait_for(self._init_huggingface(), timeout=300)  # 5 min timeout
-            elif self.provider == "openai":
-                await self._init_openai()
+            else:
+                raise ValueError(f"Unsupported embedding provider: {self.provider}")
             
             self._initialized = True
             logger.info("Embedding service initialized")
@@ -62,9 +60,13 @@ class EmbeddingService:
             from sentence_transformers import SentenceTransformer
             import torch
             
-            # Determine device
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            logger.info(f"Using device: {device}")
+            # Use configured device (CPU for this service to free GPU for LLM)
+            device = settings.EMBEDDING_DEVICE
+            # Validate device availability if CUDA is requested
+            if device == "cuda" and not torch.cuda.is_available():
+                logger.warning("CUDA requested but not available. Falling back to CPU.")
+                device = "cpu"
+            logger.info(f"Using device: {device} (configured via EMBEDDING_DEVICE setting)")
             
             # Load model
             logger.info(f"Loading HuggingFace model: {settings.EMBEDDING_MODEL}")
@@ -73,25 +75,13 @@ class EmbeddingService:
                 device=device
             )
             
-            logger.info(f"✓ Embedding model loaded successfully")
+            logger.info(f"✓ Embedding model loaded successfully on {device}")
             
         except ImportError as e:
             logger.error(f"sentence-transformers not installed: {e}")
             raise
         except Exception as e:
             logger.error(f"Failed to load embedding model: {e}", exc_info=True)
-            raise
-    
-    async def _init_openai(self):
-        """Initialize OpenAI embeddings client."""
-        try:
-            from openai import AsyncOpenAI
-            
-            self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-            logger.info(f"Initialized OpenAI embeddings: {settings.OPENAI_EMBEDDING_MODEL}")
-            
-        except ImportError:
-            logger.error("openai not installed. Install with: pip install openai")
             raise
     
     async def embed_query(self, text: str) -> List[float]:
@@ -111,12 +101,7 @@ class EmbeddingService:
             embedding = self.model.encode(text, normalize_embeddings=True)
             return embedding.tolist()
         
-        elif self.provider == "openai":
-            response = await self.client.embeddings.create(
-                model=settings.OPENAI_EMBEDDING_MODEL,
-                input=text
-            )
-            return response.data[0].embedding
+        raise ValueError(f"Unsupported embedding provider: {self.provider}")
     
     async def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """
@@ -134,8 +119,8 @@ class EmbeddingService:
         
         if self.provider == "huggingface":
             return await self._embed_huggingface(texts)
-        elif self.provider == "openai":
-            return await self._embed_openai(texts)
+        
+        raise ValueError(f"Unsupported embedding provider: {self.provider}")
     
     async def _embed_huggingface(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings using HuggingFace model."""
@@ -157,29 +142,6 @@ class EmbeddingService:
             )
             
             all_embeddings.extend(embeddings.tolist())
-        
-        return all_embeddings
-    
-    async def _embed_openai(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings using OpenAI API."""
-        # OpenAI has a limit of 2048 inputs per request
-        batch_size = 2000
-        all_embeddings = []
-        
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
-            
-            response = await self.client.embeddings.create(
-                model=settings.OPENAI_EMBEDDING_MODEL,
-                input=batch
-            )
-            
-            # Sort by index to ensure correct order
-            batch_embeddings = [None] * len(batch)
-            for item in response.data:
-                batch_embeddings[item.index] = item.embedding
-            
-            all_embeddings.extend(batch_embeddings)
         
         return all_embeddings
     

@@ -122,6 +122,7 @@ class RetrievalService:
             r for r in vector_results
             if r.get("score", 0) >= settings.RETRIEVAL_SCORE_THRESHOLD
         ]
+        
         if before_filter != len(vector_results):
             logger.info(
                 f"Score threshold ({settings.RETRIEVAL_SCORE_THRESHOLD}) filtered "
@@ -173,8 +174,8 @@ class RetrievalService:
         
         For example:
         - Title questions → Strongly boost page 1 chunks
+        - Numeric questions → Boost table chunks
         - Author questions → Boost page 1 chunks
-        - Technical questions → No boosting
         """
         if not results:
             return results
@@ -185,9 +186,17 @@ class RetrievalService:
             score = chunk.get("score", 0.0)
             metadata = chunk.get("metadata", {})
             page_num = metadata.get("page_number")
+            chunk_type = metadata.get("chunk_type", "text")
+            
+            # Apply table boosting for numeric/data questions
+            if intent.boost_metadata and intent.boost_metadata.get("table"):
+                if chunk_type in ("table", "table_rows"):
+                    boost_factor = intent.boost_metadata.get("table", 5.0)
+                    score *= boost_factor
+                    logger.debug(f"Boosted table chunk by {boost_factor}x (intent: {intent.intent_type})")
             
             # Apply page-based boosting
-            if intent.page_filter and page_num in intent.page_filter:
+            elif intent.page_filter and page_num in intent.page_filter:
                 # Strongly boost pages in filter
                 boost_factor = intent.boost_metadata.get("page_number", 5.0) if intent.boost_metadata else 5.0
                 score *= boost_factor
