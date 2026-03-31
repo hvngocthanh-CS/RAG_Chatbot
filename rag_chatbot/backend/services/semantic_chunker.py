@@ -149,59 +149,111 @@ class SemanticChunker:
     ) -> List[Dict[str, Any]]:
         """
         Main semantic chunking algorithm.
-        
+
+        Merges all paragraph/text blocks into a continuous sentence stream
+        so that semantic break detection works across page boundaries.
+        Titles and headings are emitted as standalone chunks and also
+        act as forced break points.
+
         Steps:
-        1. Extract text from blocks
-        2. Split into sentences
-        3. Embed sentences
-        4. Detect semantic breaks
-        5. Create chunks at breaks (respecting token limits)
+        1. Merge non-heading blocks into a single sentence stream
+        2. Embed all sentences
+        3. Detect semantic breaks
+        4. Create chunks at breaks (respecting token limits)
         """
         chunks = []
-        
+
+        # Collect all sentences across blocks into one stream.
+        # Track which page each sentence came from.
+        all_sentences: List[str] = []
+        sentence_pages: List[int] = []
+
         for block in text_blocks:
             block_text = block.get("text", "")
             block_type = block.get("type", "paragraph")
-            
-            # Special handling for titles/headings
-            if block_type in ["title", "heading"]:
+            page_num = block.get("page_number")
+
+            if block_type in ("title", "heading"):
+                # Flush accumulated sentences before the heading
+                if all_sentences:
+                    heading_chunks = await self._chunk_sentence_stream(
+                        all_sentences, sentence_pages, metadata, len(chunks)
+                    )
+                    chunks.extend(heading_chunks)
+                    all_sentences = []
+                    sentence_pages = []
+
+                # Emit heading as its own chunk
                 chunks.append(self._create_chunk(
-                    block_text,
-                    metadata,
-                    block,
-                    len(chunks)
+                    block_text, metadata, block, len(chunks)
                 ))
                 continue
-            
-            # Split into sentences
+
             sentences = self._split_into_sentences(block_text)
-            
-            if not sentences:
-                continue
-            
-            # Embed sentences
-            embeddings = await self._embed_sentences(sentences)
-            
-            if embeddings is None:
-                # Fallback to simple sentence-based chunking
-                block_chunks = self._fallback_chunking(sentences, metadata, block, len(chunks))
-                chunks.extend(block_chunks)
-                continue
-            
-            # Detect semantic breaks
-            break_indices = self._detect_semantic_breaks(sentences, embeddings)
-            
-            # Create chunks at semantic breaks
-            semantic_chunks = self._create_semantic_chunks(
-                sentences, 
-                break_indices, 
-                metadata, 
-                block,
-                len(chunks)
+            for s in sentences:
+                all_sentences.append(s)
+                sentence_pages.append(page_num)
+
+        # Flush remaining sentences
+        if all_sentences:
+            remaining = await self._chunk_sentence_stream(
+                all_sentences, sentence_pages, metadata, len(chunks)
             )
-            chunks.extend(semantic_chunks)
-        
+            chunks.extend(remaining)
+
         logger.info(f"Created {len(chunks)} semantic chunks")
+        return chunks
+
+    async def _chunk_sentence_stream(
+        self,
+        sentences: List[str],
+        sentence_pages: List[int],
+        metadata: Dict[str, Any],
+        start_idx: int,
+    ) -> List[Dict[str, Any]]:
+        """Embed a stream of sentences, detect breaks, and create chunks."""
+        if not sentences:
+            return []
+
+        embeddings = await self._embed_sentences(sentences)
+
+        # Build a synthetic block for _create_chunk (uses first page)
+        def _block_for_range(start: int, end: int) -> Dict[str, Any]:
+            pages = list(dict.fromkeys(
+                p for p in sentence_pages[start:end] if p is not None
+            ))
+            return {
+                "type": "paragraph",
+                "page_number": pages[0] if pages else None,
+                "page_numbers": pages,
+                "section": "",
+            }
+
+        if embeddings is None:
+            block = _block_for_range(0, len(sentences))
+            return self._fallback_chunking(sentences, metadata, block, start_idx)
+
+        break_indices = self._detect_semantic_breaks(sentences, embeddings)
+
+        chunks = []
+        for i in range(len(break_indices)):
+            start = break_indices[i]
+            end = break_indices[i + 1] if i + 1 < len(break_indices) else len(sentences)
+            chunk_sentences = sentences[start:end]
+            chunk_text = " ".join(chunk_sentences)
+            token_count = self.count_tokens(chunk_text)
+            block = _block_for_range(start, end)
+
+            if token_count <= self.max_chunk_size:
+                chunks.append(self._create_chunk(
+                    chunk_text, metadata, block, start_idx + len(chunks)
+                ))
+            else:
+                sub = self._split_large_semantic_chunk(
+                    chunk_sentences, metadata, block, start_idx + len(chunks)
+                )
+                chunks.extend(sub)
+
         return chunks
     
     def _create_semantic_chunks(

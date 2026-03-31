@@ -256,17 +256,60 @@ class ChromaVectorStore(BaseVectorStore):
         filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
-        Keyword-based search.
-        
-        Note: ChromaDB doesn't support true BM25/keyword search.
-        This returns empty results - hybrid search will rely on vector search.
-        For true keyword search, consider using Elasticsearch or similar.
+        BM25 keyword search over stored documents.
+
+        Fetches all documents from the collection (with optional metadata
+        filters), builds a BM25 index on-the-fly, and returns the top-k
+        results.  This is efficient enough for collections up to ~50k chunks
+        typical of internal-document RAG.
         """
-        # ChromaDB's query_texts uses its default embedding which has different dimensions
-        # than our custom embeddings, so we can't use it directly.
-        # Return empty list - vector search results will be used instead.
-        logger.debug("Keyword search not available in ChromaDB - using vector search only")
-        return []
+        try:
+            from rank_bm25 import BM25Okapi
+        except ImportError:
+            logger.warning("rank_bm25 not installed — keyword search disabled")
+            return []
+
+        # Fetch stored documents (with optional metadata filter)
+        where = self._build_where_clause(filters) if filters else None
+        stored = self.collection.get(
+            where=where,
+            include=["documents", "metadatas"],
+        )
+
+        if not stored or not stored["ids"]:
+            return []
+
+        ids = stored["ids"]
+        docs = stored["documents"]
+        metas = stored["metadatas"]
+
+        # Tokenise for BM25
+        tokenised_corpus = [doc.lower().split() for doc in docs]
+        bm25 = BM25Okapi(tokenised_corpus)
+
+        query_tokens = query.lower().split()
+        scores = bm25.get_scores(query_tokens)
+
+        # Get top-k indices
+        top_indices = sorted(
+            range(len(scores)),
+            key=lambda i: scores[i],
+            reverse=True,
+        )[:top_k]
+
+        results = []
+        for idx in top_indices:
+            if scores[idx] <= 0:
+                continue
+            results.append({
+                "id": ids[idx],
+                "content": docs[idx],
+                "metadata": metas[idx],
+                "score": float(scores[idx]),
+            })
+
+        logger.info("BM25 keyword search returned %d results", len(results))
+        return results
     
     async def delete_document(self, document_id: str) -> bool:
         """Delete all chunks for a document."""

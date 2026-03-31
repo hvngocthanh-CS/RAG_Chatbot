@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile backend/services/embeddings.py)",
+      "Bash(python -m py_compile backend/services/reranker.py)",
+      "Bash(python -m py_compile backend/services/query_understanding.py)",
+      "Bash(python -m py_compile backend/services/document_parser.py)",
+      "Bash(python -m py_compile backend/services/semantic_chunker.py)",
+      "Bash(rm -rf \"C:/Users/thanhhvn/Project/RAG_Chatbot/data/techviet_docs/\")",
+      "Bash(mkdir -p \"C:/Users/thanhhvn/Project/RAG_Chatbot/data/techviet_docs/\")",
+      "Bash(python generate_docs.py)",
+      "Bash(rm -rf data/techviet_docs)",
+      "Bash(mkdir -p data/techviet_docs)"
+    ]
+  }
+}

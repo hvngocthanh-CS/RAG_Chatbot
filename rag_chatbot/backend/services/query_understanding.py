@@ -154,78 +154,35 @@ class QueryUnderstandingService:
         )
 
     def _get_intent_config(self, intent: str) -> QueryIntent:
-        """Get retrieval configuration for detected intent."""
+        """Get retrieval configuration for detected intent.
 
-        if intent == "policy":
-            # Policies are usually in the front matter (page 1-3)
-            return QueryIntent(
-                intent_type="policy",
-                confidence=0.92,
-                page_filter=[1, 2, 3],
-                boost_metadata={"page_number": 4.0}
-            )
+        Design principles:
+        - Never hard-code page filters — document layout varies widely.
+        - Keep boost factors moderate (1.5–3x) to avoid burying relevant
+          chunks that happen to be on unexpected pages.
+        - Table boost is the strongest (3x) because chunk_type metadata is
+          reliable, unlike page numbers.
+        """
+        # Mapping: intent → (confidence, boost_metadata)
+        configs = {
+            "policy":       (0.92, None),
+            "procedure":    (0.90, None),
+            "contact":      (0.92, None),
+            "deadline":     (0.88, None),
+            "requirement":  (0.88, None),
+            "definition":   (0.85, None),
+            "summary":      (0.90, None),
+            "numeric":      (0.90, {"table": 3.0}),
+            "multi_context": (0.85, None),
+        }
 
-        elif intent == "procedure":
-            # Procedures can span the whole document
+        if intent in configs:
+            confidence, boost = configs[intent]
             return QueryIntent(
-                intent_type="procedure",
-                confidence=0.90,
+                intent_type=intent,
+                confidence=confidence,
                 page_filter=None,
-                boost_metadata=None
-            )
-
-        elif intent == "contact":
-            # Contact info usually in page 1 or appendix
-            return QueryIntent(
-                intent_type="contact",
-                confidence=0.92,
-                page_filter=[1],
-                boost_metadata={"page_number": 6.0}
-            )
-
-        elif intent == "deadline":
-            # Dates/deadlines can appear anywhere
-            return QueryIntent(
-                intent_type="deadline",
-                confidence=0.88,
-                page_filter=None,
-                boost_metadata=None
-            )
-
-        elif intent == "requirement":
-            # Requirements often in dedicated sections
-            return QueryIntent(
-                intent_type="requirement",
-                confidence=0.88,
-                page_filter=None,
-                boost_metadata=None
-            )
-
-        elif intent == "definition":
-            # Definitions often in intro or glossary (page 1-2)
-            return QueryIntent(
-                intent_type="definition",
-                confidence=0.85,
-                page_filter=[1, 2],
-                boost_metadata={"page_number": 3.0}
-            )
-
-        elif intent == "summary":
-            # Summary/overview at the front
-            return QueryIntent(
-                intent_type="summary",
-                confidence=0.90,
-                page_filter=[1, 2],
-                boost_metadata={"page_number": 5.0}
-            )
-
-        elif intent == "numeric":
-            # Numeric/tabular data - strongly boost table chunks
-            return QueryIntent(
-                intent_type="numeric",
-                confidence=0.90,
-                page_filter=None,
-                boost_metadata={"table": 6.0}  # Special flag for table boost
+                boost_metadata=boost,
             )
 
         return QueryIntent(intent_type=intent, confidence=0.80)

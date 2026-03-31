@@ -54,39 +54,60 @@ class DocumentParser:
     async def _parse_pdf(self, file_path: str) -> Dict[str, Any]:
         """
         Parse PDF document with layout detection.
-        
+
         Uses pypdf for text extraction and pdfplumber for tables.
+        Each page is split into paragraphs (on double-newline or blank-line
+        boundaries) so downstream chunkers can respect natural boundaries.
         """
         import pypdf
         import pdfplumber
-        
+
         text_blocks = []
         tables = []
-        
+
         # Extract text using pypdf
         with open(file_path, "rb") as f:
             pdf_reader = pypdf.PdfReader(f)
-            
+
             for page_num, page in enumerate(pdf_reader.pages, 1):
                 text = page.extract_text()
-                if text and text.strip():
-                    # Detect title on page 1 (first non-empty line)
-                    if page_num == 1:
-                        lines = [l.strip() for l in text.split('\n') if l.strip()]
-                        if lines:
-                            title = lines[0]
-                            # Add title as separate block
-                            text_blocks.append({
-                                "text": f"DOCUMENT TITLE: {title}",
-                                "page_number": page_num,
-                                "type": "title"
-                            })
-                    
-                    # Add full page text
+                if not text or not text.strip():
+                    continue
+
+                lines = [l.strip() for l in text.split('\n') if l.strip()]
+
+                # Detect title on page 1 (first non-empty line)
+                if page_num == 1 and lines:
                     text_blocks.append({
-                        "text": text.strip(),
+                        "text": f"DOCUMENT TITLE: {lines[0]}",
                         "page_number": page_num,
-                        "type": "text"
+                        "type": "title",
+                    })
+
+                # Split page text into paragraphs on blank-line boundaries.
+                # A "blank line" in PDF-extracted text appears as consecutive
+                # newlines (\n\n) or lines that are very short after a long one.
+                import re
+                paragraphs = re.split(r'\n\s*\n', text.strip())
+                for para in paragraphs:
+                    para = para.strip()
+                    if not para:
+                        continue
+                    # Detect headings: short lines that are ALL CAPS, numbered
+                    # sections (e.g. "3.1 Benefits"), or end without punctuation
+                    first_line = para.split('\n')[0].strip()
+                    is_heading = (
+                        len(first_line) < 80
+                        and (
+                            first_line.isupper()
+                            or re.match(r'^\d+(\.\d+)*\s+', first_line)
+                            or (len(para) < 120 and not para.endswith(('.', ':', ';')))
+                        )
+                    )
+                    text_blocks.append({
+                        "text": para,
+                        "page_number": page_num,
+                        "type": "heading" if is_heading else "paragraph",
                     })
         
         # Extract tables using pdfplumber (better table detection)

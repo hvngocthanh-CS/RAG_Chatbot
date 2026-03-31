@@ -123,26 +123,28 @@ class EmbeddingService:
         raise ValueError(f"Unsupported embedding provider: {self.provider}")
     
     async def _embed_huggingface(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings using HuggingFace model."""
+        """Generate embeddings using HuggingFace model.
+
+        BGE models use asymmetric encoding:
+        - Queries: prefixed with instruction (see embed_query)
+        - Documents/passages: NO prefix (raw text)
+        Ref: https://huggingface.co/BAAI/bge-base-en-v1.5
+        """
         # Process in batches to manage memory
         batch_size = 32
         all_embeddings = []
-        
+
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
-            
-            # BGE models use passage prefix for documents
-            if "bge" in settings.EMBEDDING_MODEL.lower():
-                batch = [f"Represent this sentence for retrieval: {t}" for t in batch]
-            
+
             embeddings = self.model.encode(
                 batch,
                 normalize_embeddings=True,
                 show_progress_bar=False
             )
-            
+
             all_embeddings.extend(embeddings.tolist())
-        
+
         return all_embeddings
     
     def get_embedding_dimension(self) -> int:

@@ -90,15 +90,15 @@ class RetrievalService:
             "yes" if retrieval_query != query else "no",
         )
 
-        # Step 2: Expand query based on intent
-        expanded_query = self.query_understanding.expand_query(retrieval_query, intent)
+        # Step 2: Prepare two query variants
+        #   - embedding_query: clean query for vector search (no synonym noise)
+        #   - keyword_query:   expanded with synonyms for BM25 keyword search
+        embedding_query = self._enhance_query(retrieval_query, conversation_history)
+        keyword_query = self.query_understanding.expand_query(retrieval_query, intent)
 
-        # Step 3: Enhance query with conversation context (light prefix only)
-        enhanced_query = self._enhance_query(expanded_query, conversation_history)
-        
-        # Step 1: Vector search
+        # Step 3: Vector search (uses clean embedding query)
         logger.info(f"Performing vector search for: {query[:50]}...")
-        query_embedding = await self.embedding_service.embed_query(enhanced_query)
+        query_embedding = await self.embedding_service.embed_query(embedding_query)
 
         # Apply intent-based filters (e.g., page 1 for policy/summary questions)
         search_filters = filters or {}
@@ -133,10 +133,10 @@ class RetrievalService:
         if intent.page_filter or intent.boost_metadata:
             vector_results = self._apply_intent_boosting(vector_results, intent)
         
-        # Step 3: Keyword search (if hybrid enabled)
+        # Step 4: Keyword search (if hybrid enabled) — uses expanded query
         if settings.USE_HYBRID_SEARCH:
             logger.info("Performing keyword search...")
-            keyword_results = await self._keyword_search(enhanced_query, retrieval_k, search_filters)
+            keyword_results = await self._keyword_search(keyword_query, retrieval_k, search_filters)
             
             # Combine results using Reciprocal Rank Fusion
             combined_results = self._reciprocal_rank_fusion(
@@ -151,12 +151,16 @@ class RetrievalService:
             logger.warning("No results found in retrieval")
             return []
         
-        # Step 4: Reranking
+        # Step 5: Reranking — use the resolved query (after rewrite) but
+        # NOT the expanded/enhanced version, so the cross-encoder scores
+        # genuine query-passage relevance without synonym noise.
+        # Cap candidates to 2.5x top_k to keep reranker fast on CPU.
         if self.reranker and settings.USE_RERANKER:
-            logger.info(f"Reranking {len(combined_results)} results...")
+            rerank_candidates = combined_results[:int(top_k * 2.5)]
+            logger.info(f"Reranking {len(rerank_candidates)} candidates...")
             reranked_results = await self.reranker.rerank(
-                query=query,
-                chunks=combined_results,
+                query=retrieval_query,
+                chunks=rerank_candidates,
                 top_k=top_k
             )
             return reranked_results
@@ -251,19 +255,17 @@ class RetrievalService:
         top_k: int,
         filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Perform keyword-based search.
-        """
-        # Use ChromaDB's built-in keyword search if available
-        if isinstance(self.vector_store, ChromaVectorStore):
-            return await self.vector_store.keyword_search(
+        """Perform BM25 keyword search via the vector store."""
+        store = self.vector_store
+        # Unwrap VectorStoreService wrapper to reach the actual store
+        if hasattr(store, '_store'):
+            store = store._store
+        if isinstance(store, ChromaVectorStore):
+            return await store.keyword_search(
                 query=query,
                 top_k=top_k,
-                filters=filters
+                filters=filters,
             )
-        
-        # Fallback: simple keyword matching via vector search
-        # (This is a simplified approach - in production, you might use BM25 or Elasticsearch)
         return []
     
     def _reciprocal_rank_fusion(

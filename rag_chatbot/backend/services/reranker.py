@@ -2,6 +2,7 @@
 Reranker Service.
 Uses cross-encoder models to improve retrieval accuracy.
 """
+import math
 import logging
 from typing import List, Dict, Any
 
@@ -89,14 +90,18 @@ class RerankerService:
             # Get reranker scores
             scores = self.model.predict(pairs, show_progress_bar=False)
             
-            # Combine with original chunks
+            # Normalise cross-encoder logits to [0, 1] via sigmoid so they
+            # are on the same scale as cosine-similarity scores.
+            def _sigmoid(x: float) -> float:
+                return 1.0 / (1.0 + math.exp(-x))
+
             scored_chunks = []
-            for chunk, score in zip(chunks, scores):
+            for chunk, raw_score in zip(chunks, scores):
                 reranked_chunk = chunk.copy()
-                reranked_chunk["rerank_score"] = float(score)
-                # Combine original score with rerank score (tăng weight reranker lên 80%)
+                norm_score = _sigmoid(float(raw_score))
+                reranked_chunk["rerank_score"] = norm_score
                 original_score = chunk.get("score", 0)
-                reranked_chunk["score"] = 0.2 * original_score + 0.8 * float(score)
+                reranked_chunk["score"] = 0.3 * original_score + 0.7 * norm_score
                 scored_chunks.append(reranked_chunk)
             
             # Sort by combined score
