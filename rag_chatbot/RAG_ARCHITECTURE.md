@@ -5,6 +5,26 @@
 
 ---
 
+pytest tests/test_step1_parsing.py -v -s -k inspect > tests/step1_parsing_output.txt 2>&1
+
+
+## Build Progress
+
+| Step | Name | Description | Test Verification | Status |
+|------|------|-------------|-------------------|--------|
+| 1 | **Document Parsing** | Parse PDF/DOCX/TXT/MD into structured text blocks + tables | Run test script -> verify block count, table extraction, page numbers | DONE |
+| 2 | **Data Preprocessing** | Clean noise (headers/footers), fix PDF artifacts, normalize text, merge fragments | Run test script -> compare raw vs cleaned blocks, verify noise removed | TODO |
+| 3 | **Text Chunking** | Semantic chunking (embedding-based boundary detection) + table chunks | Run test script -> verify chunk count, token sizes, overlap | TODO |
+| 4 | **Embedding Generation** | BGE model converts chunks to 768-dim vectors | Run test script -> verify vector shape, embedding time | TODO |
+| 5 | **Vector Storage (Qdrant)** | Store embeddings + metadata in Qdrant; support similarity search | Docker Qdrant -> ingest 12 docs -> run sample queries | TODO |
+| 6 | **Query Understanding** | Intent detection + query expansion + LLM-based query rewriting | Input test questions -> verify detected intent, expanded keywords | TODO |
+| 7 | **Retrieval (Hybrid Search)** | Vector search + BM25 keyword search + RRF fusion + intent boosting | Ask questions -> inspect top-K retrieved chunks with scores | TODO |
+| 8 | **Reranking** | Cross-encoder (bge-reranker-base) rescores top 15 -> top 6 | Compare retrieval results with/without reranker | TODO |
+| 9 | **LLM Answer Generation** | Ollama generates grounded answer from retrieved context | Ask question -> receive cited answer from local LLM | TODO |
+| 10 | **API + Streaming** | FastAPI endpoints + SSE token-by-token streaming | Call API via curl/Postman -> verify streaming response | TODO |
+| 11 | **Frontend Integration** | React chat UI with document upload and real-time streaming | Chat in browser, upload documents, verify sources display | TODO |
+---
+
 ## Table of Contents
 
 **Part I — Understanding RAG**
@@ -13,29 +33,30 @@
 
 **Part II — Building the Ingestion Pipeline (Offline)**
 3. [Step 1: Document Parsing](#3-step-1-document-parsing)
-4. [Step 2: Text Chunking](#4-step-2-text-chunking)
-5. [Step 3: Embedding Generation](#5-step-3-embedding-generation)
-6. [Step 4: Vector Storage](#6-step-4-vector-storage)
+4. [Step 2: Data Preprocessing](#4-step-2-data-preprocessing)
+5. [Step 3: Text Chunking](#5-step-3-text-chunking)
+6. [Step 4: Embedding Generation](#6-step-4-embedding-generation)
+7. [Step 5: Vector Storage](#7-step-5-vector-storage)
 
 **Part III — Building the Query Pipeline (Real-Time)**
-7. [Step 5: Query Understanding](#7-step-5-query-understanding)
-8. [Step 6: Retrieval (Hybrid Search)](#8-step-6-retrieval-hybrid-search)
-9. [Step 7: Reranking](#9-step-7-reranking)
-10. [Step 8: Answer Generation with LLM](#10-step-8-answer-generation-with-llm)
-11. [Step 9: Streaming & Response Delivery](#11-step-9-streaming--response-delivery)
+8. [Step 6: Query Understanding](#8-step-6-query-understanding)
+9. [Step 7: Retrieval (Hybrid Search)](#9-step-7-retrieval-hybrid-search)
+10. [Step 8: Reranking](#10-step-8-reranking)
+11. [Step 9: Answer Generation with LLM](#11-step-9-answer-generation-with-llm)
+12. [Step 10: Streaming & Response Delivery](#12-step-10-streaming--response-delivery)
 
 **Part IV — Production Concerns**
-12. [Step 10: Conversation Management & Caching](#12-step-10-conversation-management--caching)
-13. [Observability & Monitoring](#13-observability--monitoring)
-14. [Resilience Patterns](#14-resilience-patterns)
+13. [Step 11: Conversation Management & Caching](#13-step-11-conversation-management--caching)
+14. [Observability & Monitoring](#14-observability--monitoring)
+15. [Resilience Patterns](#15-resilience-patterns)
 
 **Part V — Reference**
-15. [Configuration Reference](#15-configuration-reference)
-16. [Data Schemas](#16-data-schemas)
-17. [API Reference](#17-api-reference)
-18. [Deployment Topology](#18-deployment-topology)
-19. [Design Decisions & Trade-offs](#19-design-decisions--trade-offs)
-20. [What to Build Next](#20-what-to-build-next)
+16. [Configuration Reference](#16-configuration-reference)
+17. [Data Schemas](#17-data-schemas)
+18. [API Reference](#18-api-reference)
+19. [Deployment Topology](#19-deployment-topology)
+20. [Design Decisions & Trade-offs](#20-design-decisions--trade-offs)
+21. [What to Build Next](#21-what-to-build-next)
 
 ---
 
@@ -85,7 +106,7 @@ RAG is the #1 most deployed GenAI pattern in enterprise. Every company with inte
 | LLM | Ollama (local) or vLLM | Runs locally — no API costs, data stays private |
 | Embedding Model | `BAAI/bge-base-en-v1.5` (768-dim) | Open-source, optimized for retrieval, runs on CPU |
 | Reranker | `BAAI/bge-reranker-base` | Cross-encoder for precision; biggest quality lever |
-| Vector Database | ChromaDB (default) / Qdrant | ChromaDB is embedded (no server needed); Qdrant for scale |
+| Vector Database | Qdrant (Docker) | Production-grade, HNSW index, metadata filtering, gRPC support |
 | Cache | Redis (optional) | Standard caching layer; reduces repeated LLM calls |
 | Doc Parsing | pypdf + pdfplumber + python-docx | Handles PDF tables, DOCX styles, Markdown headers |
 
@@ -103,16 +124,19 @@ PIPELINE 1: INGESTION (offline — runs when documents are uploaded)
   PDF/DOCX/TXT/MD
        |
        v
-  [1. Parse] --> Extract text blocks + tables
+  [1. Parse]      --> Extract raw text blocks + tables
        |
        v
-  [2. Chunk] --> Split into ~500-token semantic chunks
+  [2. Preprocess] --> Remove noise, fix artifacts, normalize, merge fragments
        |
        v
-  [3. Embed] --> Convert chunks to 768-dim vectors
+  [3. Chunk]      --> Split into ~500-token semantic chunks
        |
        v
-  [4. Store] --> Save vectors + metadata in ChromaDB
+  [4. Embed]      --> Convert chunks to 768-dim vectors
+       |
+       v
+  [5. Store]      --> Save vectors + metadata in Qdrant
 ```
 
 ```
@@ -121,19 +145,19 @@ PIPELINE 2: QUERY (real-time — runs when user asks a question)
   User Question + Conversation History
        |
        v
-  [5. Understand] --> Rewrite query + detect intent + expand keywords
+  [6. Understand] --> Rewrite query + detect intent + expand keywords
        |
        v
-  [6. Retrieve]   --> Hybrid search (vector + BM25) + RRF fusion
+  [7. Retrieve]   --> Hybrid search (vector + BM25) + RRF fusion
        |
        v
-  [7. Rerank]     --> Cross-encoder rescoring (top 15 → top 6)
+  [8. Rerank]     --> Cross-encoder rescoring (top 15 → top 6)
        |
        v
-  [8. Generate]   --> LLM produces answer grounded in retrieved chunks
+  [9. Generate]   --> LLM produces answer grounded in retrieved chunks
        |
        v
-  [9. Stream]     --> SSE delivers tokens + sources to frontend
+  [10. Stream]    --> SSE delivers tokens + sources to frontend
 ```
 
 ### Full Architecture Diagram
@@ -165,18 +189,21 @@ PIPELINE 2: QUERY (real-time — runs when user asks a question)
 |  | DocumentParser     |    | ConversationManager              |  |
 |  |   |                |    |   |                               |  |
 |  |   v                |    |   v                               |  |
-|  | TableExtractor     |    | QueryRewriter (LLM-based)        |  |
+|  | DataPreprocessor   |    | QueryRewriter (LLM-based)        |  |
 |  |   |                |    |   |                               |  |
 |  |   v                |    |   v                               |  |
-|  | SemanticChunker    |    | QueryUnderstanding (intent)      |  |
+|  | TableExtractor     |    | QueryUnderstanding (intent)      |  |
 |  |   |                |    |   |                               |  |
 |  |   v                |    |   v                               |  |
-|  | EmbeddingService   |    | RetrievalService                 |  |
+|  | SemanticChunker    |    | RetrievalService                 |  |
 |  |   |                |    |   |  - Vector search              |  |
 |  |   v                |    |   |  - Keyword search (BM25)      |  |
-|  | VectorStore.add()  |    |   |  - RRF fusion                 |  |
-|  |                    |    |   |  - Intent boosting             |  |
-|  +--------------------+    |   v                               |  |
+|  | EmbeddingService   |    |   |  - RRF fusion                 |  |
+|  |   |                |    |   |  - Intent boosting             |  |
+|  |   v                |    |   v                               |  |
+|  | VectorStore.add()  |    |                                   |  |
+|  |                    |    |                                   |  |
+|  +--------------------+    |                                   |  |
 |                            | RerankerService (cross-encoder)   |  |
 |                            |   |                               |  |
 |                            |   v                               |  |
@@ -190,7 +217,7 @@ PIPELINE 2: QUERY (real-time — runs when user asks a question)
         |                    |                    |
         v                    v                    v
   +-----------+      +-------------+      +------------+
-  | ChromaDB  |      |   Ollama    |      |   Redis    |
+  |  Qdrant   |      |   Ollama    |      |   Redis    |
   | (vectors) |      |   (LLM)    |      |  (cache)   |
   +-----------+      +-------------+      +------------+
 ```
@@ -285,7 +312,105 @@ This format lets the LLM read table data naturally and answer questions like "Ho
 
 ---
 
-## 4. Step 2: Text Chunking
+## 4. Step 2: Data Preprocessing
+
+### What You're Building
+
+A cleaning pipeline that transforms raw parser output into high-quality, noise-free text ready for chunking. This is the **most overlooked step** in RAG tutorials — and the most impactful for retrieval quality.
+
+### Service: `DataPreprocessor` → `backend/services/preprocessor.py`
+
+### Why This Step Is Critical
+
+Here's what the raw parser output actually looks like (from our Step 1 test):
+
+```
+Block 1 [heading, p.1]:
+  "TECHVIET SOLUTIONS JSC CONFIDENTIAL — INTERNAL USE ONLY Page 1 © 2026 TechViet S..."
+
+Block 2 [heading, p.1]:
+  "1. Company Overview TechViet Solutions Joint Stock Company..."
+
+Block 3 [heading, p.2]:
+  "TECHVIET SOLUTIONS JSC CONFIDENTIAL — INTERNAL USE ONLY Page 2 © 2026 TechViet S..."
+```
+
+**Problems:**
+1. **Header/footer noise on every page** — "TECHVIET SOLUTIONS JSC CONFIDENTIAL..." is the PDF header, not content. Without removal, every chunk gets polluted with this noise, degrading retrieval.
+2. **Most blocks misclassified as "headings"** — The header text is short and doesn't end with punctuation, fooling the heading heuristic.
+3. **PDF text rendering artifacts** — Table headers like `"Statu s"`, `"Lev el"`, `"Jurisdictio n"` have broken words from PDF column spacing.
+4. **Sparse text blocks** — Only 62 blocks across 50 pages (12 docs). Actual paragraph content is merged into huge blocks because PDF paragraph detection is imprecise.
+
+### Preprocessing Operations
+
+```
+Raw ParsedDocument (from Step 1)
+    |
+    v
+[1. Header/Footer Removal]
+    - Detect patterns that repeat across pages (e.g., company name + page number)
+    - Remove these blocks entirely — they carry zero informational value
+    - Method: frequency analysis — if a text pattern appears on 50%+ pages, it's a header/footer
+    |
+    v
+[2. PDF Artifact Repair]
+    - Fix split words: "Statu s" → "Status", "Lev el" → "Level"
+    - Fix ligature issues: "ﬁ" → "fi", "ﬂ" → "fl"
+    - Remove control characters and zero-width spaces
+    - Normalize Unicode (NFC normalization)
+    |
+    v
+[3. Block Type Reclassification]
+    - Re-evaluate heading vs paragraph after noise removal
+    - Short blocks that are actually section titles get "heading" type
+    - Long blocks with sentences get "paragraph" type
+    |
+    v
+[4. Text Normalization]
+    - Collapse multiple whitespace/newlines into single spaces
+    - Fix sentence boundaries broken by PDF line wrapping
+    - Standardize bullet points and list markers
+    |
+    v
+[5. Small Block Merging]
+    - Merge consecutive blocks that are too short to be useful on their own
+    - Threshold: blocks under ~50 characters get merged with their neighbor
+    - Preserves section boundaries (don't merge across headings)
+    |
+    v
+[6. Table Header Repair]
+    - Apply the same artifact repair to table headers
+    - "Statu s" → "Status", "Pri orit y" → "Priority"
+    - Normalize empty/None cells
+    |
+    v
+Clean ParsedDocument → ready for Step 3 (Chunking)
+```
+
+### Expected Impact
+
+| Metric | Before Preprocessing | After Preprocessing |
+|--------|---------------------|-------------------|
+| Noise blocks (headers/footers) | ~24 blocks (2 per page × 12 docs) | 0 |
+| Useful text blocks | ~38 (62 total - 24 noise) | ~38+ (same content, cleaner) |
+| Broken table headers | ~15 across 85 tables | 0 |
+| Average block quality | Mixed (noise + content) | Content only |
+| Downstream chunk quality | Polluted with repeated headers | Clean, focused content |
+
+### Key Interview Talking Points
+
+> **Q: Why not fix this in the parser itself?**
+> A: Separation of concerns. The parser's job is faithful extraction — it should extract everything the document contains, including headers and footers. The preprocessor's job is domain-aware cleaning — deciding what's noise vs. content. This makes both components reusable and testable independently.
+
+> **Q: How do you detect headers/footers automatically?**
+> A: Frequency analysis. If the same text pattern (ignoring page numbers) appears on 50%+ of pages, it's a header or footer. This works universally without hardcoding company names. You extract the pattern once per document, then filter all matching blocks.
+
+> **Q: Isn't this just "data cleaning"? Why call it a pipeline step?**
+> A: In production RAG systems, data quality is the #1 predictor of answer quality — more than model choice, chunk size, or retrieval strategy. The saying "garbage in, garbage out" is especially true for RAG. Companies like Anthropic, OpenAI, and Cohere all emphasize preprocessing as a distinct pipeline stage, not an afterthought.
+
+---
+
+## 5. Step 3: Text Chunking
 
 ### What You're Building
 
@@ -370,7 +495,7 @@ Tables become their own chunks with `chunk_type: "table"` in metadata. This is i
 
 ---
 
-## 5. Step 3: Embedding Generation
+## 6. Step 4: Embedding Generation
 
 ### What You're Building
 
@@ -428,36 +553,32 @@ get_embedding_dimension() -> int  # 768
 
 ---
 
-## 6. Step 4: Vector Storage
+## 7. Step 5: Vector Storage
 
 ### What You're Building
 
 A persistent store for your embeddings that supports fast similarity search and metadata filtering.
 
-### Service: `VectorStore` → `backend/services/vector_store.py` (Abstract Factory pattern)
+### Service: `VectorStore` → `backend/services/vector_store.py`
 
-### ChromaDB (Default Implementation)
+### Qdrant — Our Vector Database
 
 ```
-Storage:  Persistent on disk (./data/chroma_db)
-Index:    HNSW (Hierarchical Navigable Small World graph)
-Metric:   Cosine similarity
+Deployment: Docker container (qdrant/qdrant)
+Ports:      6333 (HTTP REST API), 6334 (gRPC — preferred for performance)
+Index:      HNSW (Hierarchical Navigable Small World) with quantization
+Metric:     Cosine similarity
+Storage:    Persistent via Docker volume
+
 Features:
-  - Metadata filtering (e.g., department="HR", chunk_type="table")
-  - Built-in BM25 keyword search
-  - Persistent across application restarts
-  - No separate server needed (embedded in your Python process)
-```
+  - Metadata filtering with nested boolean conditions (department="HR" AND chunk_type="table")
+  - Payload storage for full chunk text + metadata
+  - gRPC transport for lower latency (~2x faster than HTTP)
+  - Horizontal scaling (sharding + replication) for production
+  - Built-in web dashboard at http://localhost:6333/dashboard
 
-### Qdrant (Production Alternative)
-
-```
-Storage:  Self-hosted server or Qdrant Cloud
-Index:    HNSW with optional scalar/binary quantization
-Features:
-  - Advanced filtering with nested boolean conditions
-  - Horizontal scaling (sharding + replication)
-  - Separate server = independent scaling from your API
+Setup:
+  docker run -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage qdrant/qdrant
 ```
 
 ### What Gets Stored Per Chunk
@@ -500,14 +621,14 @@ async get_collection_stats()                   # Collection count and size info
 > **Q: What is HNSW and why does it matter?**
 > A: HNSW (Hierarchical Navigable Small World) is an approximate nearest neighbor algorithm. Exact search across 1M vectors would take seconds. HNSW builds a graph structure that finds the ~95% best results in milliseconds. The trade-off is a small accuracy loss for massive speed gain.
 
-> **Q: When would you switch from ChromaDB to Qdrant?**
-> A: ChromaDB is embedded — great up to ~1M vectors on a single machine. Beyond that, or if you need horizontal scaling, production-grade monitoring, or advanced filtering, Qdrant (or Pinecone, Weaviate) makes sense.
+> **Q: Why Qdrant over ChromaDB or Pinecone?**
+> A: Qdrant is open-source and self-hosted (data stays private), has native gRPC support (faster than HTTP), supports advanced metadata filtering (needed for department-scoped access control), and scales horizontally for production. ChromaDB is simpler but lacks gRPC and advanced filtering. Pinecone is managed SaaS — great but costly and data leaves your network.
 
 ---
 
 # Part III — Building the Query Pipeline (Real-Time)
 
-## 7. Step 5: Query Understanding
+## 8. Step 6: Query Understanding
 
 ### What You're Building
 
@@ -593,7 +714,7 @@ This helps the BM25 keyword search find documents that use different words for t
 
 ---
 
-## 8. Step 6: Retrieval (Hybrid Search)
+## 9. Step 7: Retrieval (Hybrid Search)
 
 ### What You're Building
 
@@ -759,7 +880,7 @@ For each result appearing in either list:
 
 ---
 
-## 9. Step 7: Reranking
+## 10. Step 8: Reranking
 
 ### What You're Building
 
@@ -841,7 +962,7 @@ Can be disabled with `USE_RERANKER=False` for latency-sensitive environments.
 
 ---
 
-## 10. Step 8: Answer Generation with LLM
+## 11. Step 9: Answer Generation with LLM
 
 ### What You're Building
 
@@ -915,7 +1036,7 @@ async def generate_stream(question, context, history) -> AsyncGenerator[str]:
 
 ---
 
-## 11. Step 9: Streaming & Response Delivery
+## 12. Step 10: Streaming & Response Delivery
 
 ### What You're Building
 
@@ -990,7 +1111,7 @@ Browser                                 Server
 
 # Part IV — Production Concerns
 
-## 12. Step 10: Conversation Management & Caching
+## 13. Step 11: Conversation Management & Caching
 
 ### Conversation Manager → `backend/services/conversation.py`
 
@@ -1034,7 +1155,7 @@ Flow:
 
 ---
 
-## 13. Observability & Monitoring
+## 14. Observability & Monitoring
 
 ### Service: `ObservabilityModule` → `backend/services/observability.py`
 
@@ -1088,7 +1209,7 @@ Every request produces structured logs that can be aggregated by ELK, Datadog, o
 
 ---
 
-## 14. Resilience Patterns
+## 15. Resilience Patterns
 
 ### Circuit Breaker (protects against LLM failures)
 
@@ -1141,7 +1262,7 @@ Max concurrent LLM requests: 50 (via asyncio.Semaphore)
 
 # Part V — Reference
 
-## 15. Configuration Reference
+## 16. Configuration Reference
 
 All settings via environment variables, loaded by Pydantic `BaseSettings` in `backend/config/settings.py`.
 
@@ -1165,13 +1286,16 @@ All settings via environment variables, loaded by Pydantic `BaseSettings` in `ba
 | `EMBEDDING_DIMENSION` | `768` | Output vector dimensions |
 | `EMBEDDING_DEVICE` | `"cpu"` | `"cpu"` or `"cuda"` |
 
-### Vector Database Settings
+### Vector Database Settings (Qdrant)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VECTOR_DB_TYPE` | `"chroma"` | `"chroma"` or `"qdrant"` |
-| `CHROMA_PERSIST_DIR` | `"./data/chroma_db"` | ChromaDB storage path |
-| `COLLECTION_NAME` | `"documents"` | Collection name |
+| `QDRANT_HOST` | `"localhost"` | Qdrant server hostname |
+| `QDRANT_PORT` | `6333` | Qdrant HTTP port |
+| `QDRANT_GRPC_PORT` | `6334` | Qdrant gRPC port (preferred) |
+| `QDRANT_API_KEY` | `None` | API key (optional, for Qdrant Cloud) |
+| `QDRANT_PREFER_GRPC` | `True` | Use gRPC instead of HTTP (~2x faster) |
+| `COLLECTION_NAME` | `"documents"` | Qdrant collection name |
 
 ### Retrieval Settings
 
@@ -1200,9 +1324,9 @@ All settings via environment variables, loaded by Pydantic `BaseSettings` in `ba
 
 ---
 
-## 16. Data Schemas
+## 17. Data Schemas
 
-### Vector DB Document (ChromaDB)
+### Vector DB Point (Qdrant)
 
 ```json
 {
@@ -1254,7 +1378,7 @@ TTL:   3600 seconds
 
 ---
 
-## 17. API Reference
+## 18. API Reference
 
 ### Chat Endpoints
 
@@ -1325,7 +1449,7 @@ data: {"type":"done"}
 
 ---
 
-## 18. Deployment Topology
+## 19. Deployment Topology
 
 ### Development (single machine)
 
@@ -1336,7 +1460,7 @@ data: {"type":"done"}
 |  Frontend   (Vite dev server :3000)          |
 |  Backend    (Uvicorn :8000)                  |
 |  Ollama     (LLM server :11434)             |
-|  ChromaDB   (embedded, ./data/chroma_db)     |
+|  Qdrant     (Docker :6333 / :6334)          |
 |  Redis      (optional, :6379)               |
 +----------------------------------------------+
 ```
@@ -1356,8 +1480,8 @@ data: {"type":"done"}
                     +--------------+--------------+
                     |              |              |
               +-----+----+  +----+-----+  +-----+----+
-              | ChromaDB  |  |  Ollama   |  |  Redis   |
-              | / Qdrant  |  |  / vLLM   |  |  Cache   |
+              |  Qdrant   |  |  Ollama   |  |  Redis   |
+              | (Docker)  |  |  / vLLM   |  |  Cache   |
               +-----------+  +----------+  +----------+
 ```
 
@@ -1369,31 +1493,32 @@ data: {"type":"done"}
 | Embedding model | 2 cores | 2 GB | Optional | ~500 MB |
 | Reranker model | 2 cores | 2 GB | Optional | ~1 GB |
 | Ollama (phi3) | 4 cores | 8 GB | Optional | ~2 GB |
-| ChromaDB | 2 cores | 4 GB | — | ~1 GB per 1M chunks |
+| Qdrant (Docker) | 2 cores | 4 GB | — | ~1 GB per 1M vectors |
 | Redis | 1 core | 1 GB | — | — |
 
 ---
 
-## 19. Design Decisions & Trade-offs
+## 20. Design Decisions & Trade-offs
 
 Every technical decision in this project was made deliberately. Understanding the *why* behind each choice is what separates a junior engineer from a tutorial-follower.
 
 | # | Decision | What We Chose | What We Didn't Choose | Why |
 |---|----------|--------------|----------------------|-----|
-| 1 | Chunking strategy | Semantic (embedding-based) | Fixed-size token chunking | Topic-coherent chunks improve retrieval quality. Slower ingestion is acceptable since it's offline. |
-| 2 | Embedding model | BGE (open-source, self-hosted) | OpenAI ada-002, Cohere | Data privacy — no company data leaves the network. Free. Can be fine-tuned on domain data. |
-| 3 | Reranking | Cross-encoder (bge-reranker) | No reranking / LLM-based reranking | +16% accuracy for +200ms latency. Best quality/cost ratio. LLM reranking would add seconds. |
-| 4 | Search method | Hybrid (vector + BM25 + RRF) | Vector-only or keyword-only | Vector catches semantic matches; BM25 catches exact terms. RRF combines both simply and effectively. |
-| 5 | Intent detection | Rule-based (regex) | LLM-based classification | <1ms, interpretable, no API call. Covers 90%+ of patterns. Can add LLM fallback later. |
-| 6 | LLM provider | Ollama (local) | OpenAI / Anthropic cloud API | Data privacy, zero API cost, lower latency. Trade-off: lower quality than GPT-4o/Claude. |
-| 7 | Error handling | Circuit breaker pattern | Simple retry or no handling | Prevents cascading failures. Essential when LLM goes down — fail fast instead of timeout cascade. |
-| 8 | Response delivery | SSE streaming | WebSocket / long polling | SSE is simpler (HTTP-based, auto-reconnect). Sufficient for one-way server→client streaming. |
-| 9 | Conversation storage | In-memory (OrderedDict) | Redis / PostgreSQL | Simplicity for MVP. Trade-off: data lost on restart. Clear upgrade path to Redis when needed. |
-| 10 | Vector database | ChromaDB (embedded) | Qdrant / Pinecone / pgvector | No separate server needed. Good for <1M vectors. Easy to start. Qdrant when scaling is needed. |
+| 1 | Data preprocessing | Dedicated cleaning step (Step 2) | Clean inside the parser / skip cleaning | Separation of concerns: parser extracts faithfully, preprocessor cleans intelligently. "Garbage in, garbage out" — data quality is the #1 predictor of RAG answer quality. |
+| 2 | Chunking strategy | Semantic (embedding-based) | Fixed-size token chunking | Topic-coherent chunks improve retrieval quality. Slower ingestion is acceptable since it's offline. |
+| 3 | Embedding model | BGE (open-source, self-hosted) | OpenAI ada-002, Cohere | Data privacy — no company data leaves the network. Free. Can be fine-tuned on domain data. |
+| 4 | Reranking | Cross-encoder (bge-reranker) | No reranking / LLM-based reranking | +16% accuracy for +200ms latency. Best quality/cost ratio. LLM reranking would add seconds. |
+| 5 | Search method | Hybrid (vector + BM25 + RRF) | Vector-only or keyword-only | Vector catches semantic matches; BM25 catches exact terms. RRF combines both simply and effectively. |
+| 6 | Intent detection | Rule-based (regex) | LLM-based classification | <1ms, interpretable, no API call. Covers 90%+ of patterns. Can add LLM fallback later. |
+| 7 | LLM provider | Ollama (local) | OpenAI / Anthropic cloud API | Data privacy, zero API cost, lower latency. Trade-off: lower quality than GPT-4o/Claude. |
+| 8 | Error handling | Circuit breaker pattern | Simple retry or no handling | Prevents cascading failures. Essential when LLM goes down — fail fast instead of timeout cascade. |
+| 9 | Response delivery | SSE streaming | WebSocket / long polling | SSE is simpler (HTTP-based, auto-reconnect). Sufficient for one-way server→client streaming. |
+| 10 | Conversation storage | In-memory (OrderedDict) | Redis / PostgreSQL | Simplicity for MVP. Trade-off: data lost on restart. Clear upgrade path to Redis when needed. |
+| 11 | Vector database | Qdrant (Docker) | ChromaDB / Pinecone / pgvector | Self-hosted (data privacy), gRPC for speed, advanced filtering for RBAC, scales horizontally. Docker makes setup trivial. |
 
 ---
 
-## 20. What to Build Next
+## 21. What to Build Next
 
 These are real features that mid/large companies need. Building any of these would strengthen your portfolio further.
 

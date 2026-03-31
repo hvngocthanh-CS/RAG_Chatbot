@@ -1,258 +1,442 @@
 """
-Document Parser Service.
-Handles parsing of various document formats (PDF, DOCX, TXT).
+Document Parser — Step 1 of the RAG pipeline.
+
+Uses pdfplumber for BOTH text and table extraction from PDFs.
+Key capabilities:
+  - Header/footer removal via y-coordinate filtering
+  - Table regions excluded from text extraction (no duplication)
+  - Paragraph-level block granularity (not page-level dumps)
+  - Heading detection via font size analysis + regex patterns
 """
-import os
+import re
 import logging
-from typing import Dict, Any, List
 from pathlib import Path
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
+
+# PDF page coordinate thresholds (A4: 595 x 842 points)
+HEADER_Y_THRESHOLD = 55      # anything above this = header
+FOOTER_Y_THRESHOLD = 780     # anything below this = footer
+
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TextBlock:
+    """A contiguous block of text extracted from a document."""
+    text: str
+    page_number: Optional[int] = None
+    block_type: str = "paragraph"       # "title" | "heading" | "paragraph"
+    section: str = ""                   # Nearest heading above this block
+
+    def to_dict(self) -> dict:
+        return {
+            "text": self.text,
+            "page_number": self.page_number,
+            "block_type": self.block_type,
+            "section": self.section,
+        }
+
+
+@dataclass
+class Table:
+    """A table extracted from a document."""
+    headers: List[str]
+    rows: List[List[str]]
+    page_number: Optional[int] = None
+    name: str = ""
+    section: str = ""
+
+    @property
+    def is_empty(self) -> bool:
+        return len(self.rows) == 0
+
+    def to_dict(self) -> dict:
+        return {
+            "headers": self.headers,
+            "rows": self.rows,
+            "page_number": self.page_number,
+            "name": self.name,
+            "section": self.section,
+        }
+
+
+@dataclass
+class ParsedDocument:
+    """Complete output of parsing a single file."""
+    text_blocks: List[TextBlock] = field(default_factory=list)
+    tables: List[Table] = field(default_factory=list)
+    page_count: int = 0
+    file_type: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "text_blocks": [b.to_dict() for b in self.text_blocks],
+            "tables": [t.to_dict() for t in self.tables],
+            "metadata": {
+                "page_count": self.page_count,
+                "file_type": self.file_type,
+                "text_block_count": len(self.text_blocks),
+                "table_count": len(self.tables),
+            },
+        }
+
+
+# ---------------------------------------------------------------------------
+# Heading detection
+# ---------------------------------------------------------------------------
+
+_NUMBERED_HEADING_RE = re.compile(r"^\d+(\.\d+)*\.?\s+\S")
+
+
+def _is_heading(text: str) -> bool:
+    """Heuristic: short, ALL-CAPS, numbered section, or short without ending punct."""
+    text = text.strip()
+    if not text or len(text) > 150:
+        return False
+    if text.isupper() and len(text) < 80:
+        return True
+    if _NUMBERED_HEADING_RE.match(text):
+        return True
+    if len(text) < 80 and not text.endswith((".", ":", ";", "?", ",")):
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
 
 class DocumentParser:
     """
-    Multi-format document parser with layout detection.
-    
-    Supports:
-    - PDF files (with table detection)
-    - DOCX files
-    - TXT/MD files
-    """
-    
-    def __init__(self):
-        self._setup_parsers()
-    
-    def _setup_parsers(self):
-        """Initialize document parsing libraries."""
-        pass  # Lazy loading to avoid heavy imports at startup
-    
-    async def parse(self, file_path: str) -> Dict[str, Any]:
-        """
-        Parse a document and extract structured content.
-        
-        Args:
-            file_path: Path to the document
-        
-        Returns:
-            Dictionary containing:
-            - text_blocks: List of text segments with metadata
-            - tables: List of detected tables
-            - metadata: Document-level metadata
-        """
-        file_ext = os.path.splitext(file_path)[1].lower()
-        
-        if file_ext == ".pdf":
-            return await self._parse_pdf(file_path)
-        elif file_ext == ".docx":
-            return await self._parse_docx(file_path)
-        elif file_ext in [".txt", ".md"]:
-            return await self._parse_text(file_path)
-        else:
-            raise ValueError(f"Unsupported file format: {file_ext}")
-    
-    async def _parse_pdf(self, file_path: str) -> Dict[str, Any]:
-        """
-        Parse PDF document with layout detection.
+    Multi-format document parser using pdfplumber exclusively for PDFs.
 
-        Uses pypdf for text extraction and pdfplumber for tables.
-        Each page is split into paragraphs (on double-newline or blank-line
-        boundaries) so downstream chunkers can respect natural boundaries.
-        """
-        import pypdf
+    PDF pipeline per page:
+      1. Crop page to remove header/footer by y-coordinate
+      2. Find table bounding boxes in cropped area
+      3. Extract tables separately via find_tables()
+      4. Extract words outside table regions via extract_words()
+      5. Group words → lines → paragraphs by vertical gaps
+      6. Classify each paragraph as heading or body text via font size + regex
+    """
+
+    async def parse(self, file_path: str) -> ParsedDocument:
+        path = Path(file_path)
+        ext = path.suffix.lower()
+
+        if ext not in SUPPORTED_EXTENSIONS:
+            raise ValueError(
+                f"Unsupported format '{ext}'. Supported: {SUPPORTED_EXTENSIONS}"
+            )
+
+        logger.info("Parsing %s (%s)", path.name, ext)
+
+        if ext == ".pdf":
+            doc = await self._parse_pdf(path)
+        elif ext == ".docx":
+            doc = await self._parse_docx(path)
+        else:
+            doc = await self._parse_text(path)
+
+        logger.info(
+            "Parsed %s: %d text blocks, %d tables, %d pages",
+            path.name, len(doc.text_blocks), len(doc.tables), doc.page_count,
+        )
+        return doc
+
+    # ------------------------------------------------------------------
+    # PDF — pdfplumber only
+    # ------------------------------------------------------------------
+    async def _parse_pdf(self, path: Path) -> ParsedDocument:
         import pdfplumber
 
-        text_blocks = []
-        tables = []
+        all_text_blocks: List[TextBlock] = []
+        all_tables: List[Table] = []
+        current_section = ""
 
-        # Extract text using pypdf
-        with open(file_path, "rb") as f:
-            pdf_reader = pypdf.PdfReader(f)
+        with pdfplumber.open(path) as pdf:
+            page_count = len(pdf.pages)
 
-            for page_num, page in enumerate(pdf_reader.pages, 1):
-                text = page.extract_text()
-                if not text or not text.strip():
+            for page_num, page in enumerate(pdf.pages, 1):
+
+                # Step 1: Crop — remove header and footer regions
+                body = page.crop((
+                    0, HEADER_Y_THRESHOLD,
+                    page.width, FOOTER_Y_THRESHOLD,
+                ))
+
+                # Step 2: Find tables and collect their bounding boxes
+                found_tables = body.find_tables()
+                table_bboxes = [t.bbox for t in found_tables]
+
+                # Step 3: Extract tables
+                for idx, t in enumerate(found_tables):
+                    table = self._clean_raw_table(
+                        t.extract(), page_num, idx, current_section,
+                    )
+                    if table and not table.is_empty:
+                        all_tables.append(table)
+
+                # Step 4: Extract words outside table regions (with font size)
+                words = body.extract_words(
+                    keep_blank_chars=False,
+                    extra_attrs=["size"],
+                )
+                body_words = [
+                    w for w in words
+                    if not self._word_in_any_bbox(w, table_bboxes)
+                ]
+
+                if not body_words:
                     continue
 
-                lines = [l.strip() for l in text.split('\n') if l.strip()]
+                # Step 5: Group words → lines → paragraphs
+                body_font_size = self._most_common_size(body_words)
+                paragraphs = self._words_to_paragraphs(body_words)
 
-                # Detect title on page 1 (first non-empty line)
-                if page_num == 1 and lines:
-                    text_blocks.append({
-                        "text": f"DOCUMENT TITLE: {lines[0]}",
-                        "page_number": page_num,
-                        "type": "title",
-                    })
-
-                # Split page text into paragraphs on blank-line boundaries.
-                # A "blank line" in PDF-extracted text appears as consecutive
-                # newlines (\n\n) or lines that are very short after a long one.
-                import re
-                paragraphs = re.split(r'\n\s*\n', text.strip())
-                for para in paragraphs:
-                    para = para.strip()
-                    if not para:
+                # Step 6: Classify each paragraph and build TextBlocks
+                for para_text, avg_font_size in paragraphs:
+                    para_text = para_text.strip()
+                    if not para_text:
                         continue
-                    # Detect headings: short lines that are ALL CAPS, numbered
-                    # sections (e.g. "3.1 Benefits"), or end without punctuation
-                    first_line = para.split('\n')[0].strip()
+
                     is_heading = (
-                        len(first_line) < 80
-                        and (
-                            first_line.isupper()
-                            or re.match(r'^\d+(\.\d+)*\s+', first_line)
-                            or (len(para) < 120 and not para.endswith(('.', ':', ';')))
-                        )
+                        avg_font_size > body_font_size + 1.5
+                        or _is_heading(para_text)
                     )
-                    text_blocks.append({
-                        "text": para,
-                        "page_number": page_num,
-                        "type": "heading" if is_heading else "paragraph",
-                    })
-        
-        # Extract tables using pdfplumber (better table detection)
-        with pdfplumber.open(file_path) as pdf:
-            for page_num, page in enumerate(pdf.pages, 1):
-                page_tables = page.extract_tables()
-                
-                for table_idx, table_data in enumerate(page_tables):
-                    if table_data and len(table_data) > 1:
-                        # First row is usually headers
-                        headers = [str(cell) if cell else "" for cell in table_data[0]]
-                        rows = [
-                            [str(cell) if cell else "" for cell in row]
-                            for row in table_data[1:]
-                        ]
-                        
-                        tables.append({
-                            "headers": headers,
-                            "rows": rows,
-                            "page_number": page_num,
-                            "table_index": table_idx,
-                            "name": f"Table_{page_num}_{table_idx + 1}"
-                        })
-        
-        return {
-            "text_blocks": text_blocks,
-            "tables": tables,
-            "metadata": {
-                "page_count": len(pdf_reader.pages),
-                "file_type": "pdf"
-            }
-        }
-    
-    async def _parse_docx(self, file_path: str) -> Dict[str, Any]:
+                    if is_heading:
+                        current_section = para_text
+                        block_type = "heading"
+                    else:
+                        block_type = "paragraph"
+
+                    all_text_blocks.append(TextBlock(
+                        text=para_text,
+                        page_number=page_num,
+                        block_type=block_type,
+                        section=current_section,
+                    ))
+
+        return ParsedDocument(
+            text_blocks=all_text_blocks,
+            tables=all_tables,
+            page_count=page_count,
+            file_type="pdf",
+        )
+
+    # ------------------------------------------------------------------
+    # PDF helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _word_in_any_bbox(word: dict, bboxes: list) -> bool:
+        """True if the word falls inside any of the given bounding boxes."""
+        for (tx0, ttop, tx1, tbottom) in bboxes:
+            if (word["x0"] >= tx0 - 2 and word["x1"] <= tx1 + 2
+                    and word["top"] >= ttop - 2 and word["bottom"] <= tbottom + 2):
+                return True
+        return False
+
+    @staticmethod
+    def _most_common_size(words: list) -> float:
+        """Return the most frequent font size among words (= body text size)."""
+        from collections import Counter
+        sizes = [round(w.get("size", 10), 1) for w in words]
+        if not sizes:
+            return 10.0
+        return Counter(sizes).most_common(1)[0][0]
+
+    @staticmethod
+    def _words_to_paragraphs(words: list) -> List[tuple]:
         """
-        Parse DOCX document.
-        
-        Uses python-docx for extraction.
+        Group words into lines (by y-position), then lines into paragraphs
+        (by vertical gap). Returns list of (text, avg_font_size).
         """
-        from docx import Document
-        from docx.table import Table
-        
-        doc = Document(file_path)
-        
-        text_blocks = []
-        tables = []
-        current_section = ""
-        
-        for element in doc.element.body:
-            if element.tag.endswith('p'):
-                # Paragraph
-                para = None
-                for p in doc.paragraphs:
-                    if p._element is element:
-                        para = p
-                        break
-                
-                if para and para.text.strip():
-                    # Check if it's a heading
-                    style_name = para.style.name if para.style else ""
-                    
-                    if "Heading" in style_name:
-                        current_section = para.text.strip()
-                    
-                    text_blocks.append({
-                        "text": para.text.strip(),
-                        "type": "heading" if "Heading" in style_name else "paragraph",
-                        "section": current_section,
-                        "style": style_name
-                    })
-            
-            elif element.tag.endswith('tbl'):
-                # Table
-                for tbl in doc.tables:
-                    if tbl._element is element:
-                        table_data = self._extract_docx_table(tbl)
-                        if table_data:
-                            table_data["section"] = current_section
-                            tables.append(table_data)
-                        break
-        
-        return {
-            "text_blocks": text_blocks,
-            "tables": tables,
-            "metadata": {
-                "paragraph_count": len(doc.paragraphs),
-                "table_count": len(doc.tables),
-                "file_type": "docx"
-            }
-        }
-    
-    def _extract_docx_table(self, table) -> Dict[str, Any]:
-        """Extract table data from a DOCX table object."""
+        if not words:
+            return []
+
+        # Sort top-to-bottom, then left-to-right
+        words = sorted(words, key=lambda w: (round(w["top"], 1), w["x0"]))
+
+        # --- Group into lines (words at similar y) ---
+        lines = []
+        cur_line = [words[0]]
+        for w in words[1:]:
+            if abs(w["top"] - cur_line[-1]["top"]) < 3:
+                cur_line.append(w)
+            else:
+                lines.append(cur_line)
+                cur_line = [w]
+        lines.append(cur_line)
+
+        # Build line objects
+        line_objs = []
+        for lw in lines:
+            lw_sorted = sorted(lw, key=lambda w: w["x0"])
+            text = " ".join(w["text"] for w in lw_sorted)
+            top = min(w["top"] for w in lw_sorted)
+            sizes = [w.get("size", 10) for w in lw_sorted]
+            avg_size = sum(sizes) / len(sizes)
+            line_objs.append({"text": text, "top": top, "avg_size": avg_size})
+
+        # --- Group lines into paragraphs (by vertical gap) ---
+        paragraphs = []
+        cur_para = [line_objs[0]]
+
+        for i in range(1, len(line_objs)):
+            gap = line_objs[i]["top"] - line_objs[i - 1]["top"]
+            # A gap > ~1.8x normal line height = new paragraph
+            if gap > 25:
+                para_text = " ".join(l["text"] for l in cur_para)
+                avg_font = sum(l["avg_size"] for l in cur_para) / len(cur_para)
+                paragraphs.append((para_text, avg_font))
+                cur_para = [line_objs[i]]
+            else:
+                cur_para.append(line_objs[i])
+
+        # Last paragraph
+        if cur_para:
+            para_text = " ".join(l["text"] for l in cur_para)
+            avg_font = sum(l["avg_size"] for l in cur_para) / len(cur_para)
+            paragraphs.append((para_text, avg_font))
+
+        return paragraphs
+
+    @staticmethod
+    def _clean_raw_table(
+        raw_table: list, page_number: int, index: int, section: str,
+    ) -> Optional[Table]:
+        """Convert pdfplumber raw table (list of lists) into a Table dataclass."""
+        if not raw_table or len(raw_table) < 2:
+            return None
+
+        def clean(cell) -> str:
+            if cell is None:
+                return ""
+            return " ".join(str(cell).split()).strip()
+
+        headers = [clean(c) for c in raw_table[0]]
         rows = []
-        
-        for row in table.rows:
-            row_data = []
-            for cell in row.cells:
-                row_data.append(cell.text.strip())
-            rows.append(row_data)
-        
+        for row in raw_table[1:]:
+            cleaned = [clean(c) for c in row]
+            cleaned = (cleaned + [""] * len(headers))[:len(headers)]
+            if any(cleaned):
+                rows.append(cleaned)
+
         if not rows:
             return None
-        
-        # First row as headers
-        headers = rows[0]
-        data_rows = rows[1:] if len(rows) > 1 else []
-        
-        return {
-            "headers": headers,
-            "rows": data_rows,
-            "name": f"Table_{len(rows)}rows"
-        }
-    
-    async def _parse_text(self, file_path: str) -> Dict[str, Any]:
-        """
-        Parse plain text or markdown files.
-        """
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
-        
-        # Split by paragraphs (double newlines)
+
+        return Table(
+            headers=headers,
+            rows=rows,
+            page_number=page_number,
+            name=f"Table_p{page_number}_{index + 1}",
+            section=section,
+        )
+
+    # ------------------------------------------------------------------
+    # DOCX
+    # ------------------------------------------------------------------
+    async def _parse_docx(self, path: Path) -> ParsedDocument:
+        from docx import Document
+
+        doc = Document(str(path))
+        text_blocks: List[TextBlock] = []
+        tables: List[Table] = []
+        current_section = ""
+
+        for element in doc.element.body:
+            tag = element.tag.split("}")[-1]
+
+            if tag == "p":
+                para = self._find_paragraph(doc, element)
+                if not para or not para.text.strip():
+                    continue
+                style = para.style.name if para.style else ""
+                is_heading = "Heading" in style
+
+                if is_heading:
+                    current_section = para.text.strip()
+
+                text_blocks.append(TextBlock(
+                    text=para.text.strip(),
+                    block_type="heading" if is_heading else "paragraph",
+                    section=current_section,
+                ))
+
+            elif tag == "tbl":
+                tbl = self._find_table(doc, element)
+                if tbl:
+                    table = self._extract_docx_table(tbl, current_section)
+                    if table and not table.is_empty:
+                        tables.append(table)
+
+        return ParsedDocument(
+            text_blocks=text_blocks,
+            tables=tables,
+            page_count=0,
+            file_type="docx",
+        )
+
+    @staticmethod
+    def _find_paragraph(doc, element):
+        for p in doc.paragraphs:
+            if p._element is element:
+                return p
+        return None
+
+    @staticmethod
+    def _find_table(doc, element):
+        for t in doc.tables:
+            if t._element is element:
+                return t
+        return None
+
+    @staticmethod
+    def _extract_docx_table(tbl, section: str) -> Optional[Table]:
+        all_rows = []
+        for row in tbl.rows:
+            all_rows.append([cell.text.strip() for cell in row.cells])
+        if len(all_rows) < 2:
+            return None
+        return Table(
+            headers=all_rows[0],
+            rows=all_rows[1:],
+            name=f"Table_{len(all_rows)}rows",
+            section=section,
+        )
+
+    # ------------------------------------------------------------------
+    # TXT / Markdown
+    # ------------------------------------------------------------------
+    async def _parse_text(self, path: Path) -> ParsedDocument:
+        content = path.read_text(encoding="utf-8", errors="ignore")
         paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
-        
-        text_blocks = []
+
+        text_blocks: List[TextBlock] = []
+        current_section = ""
         for para in paragraphs:
-            # Detect markdown headers
-            lines = para.split("\n")
-            first_line = lines[0] if lines else ""
-            
+            first_line = para.split("\n")[0]
             if first_line.startswith("#"):
+                current_section = first_line.lstrip("# ").strip()
                 block_type = "heading"
             else:
                 block_type = "paragraph"
-            
-            text_blocks.append({
-                "text": para,
-                "type": block_type
-            })
-        
-        return {
-            "text_blocks": text_blocks,
-            "tables": [],  # No table detection for plain text
-            "metadata": {
-                "character_count": len(content),
-                "file_type": "text"
-            }
-        }
+
+            text_blocks.append(TextBlock(
+                text=para,
+                block_type=block_type,
+                section=current_section,
+            ))
+
+        return ParsedDocument(
+            text_blocks=text_blocks,
+            tables=[],
+            page_count=0,
+            file_type=path.suffix.lstrip("."),
+        )
