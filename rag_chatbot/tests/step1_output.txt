@@ -1,0 +1,1021 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.10.19, pytest-7.4.4, pluggy-1.6.0 -- C:\Users\thanhhvn\AppData\Local\miniconda3\envs\myenv\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\thanhhvn\Project\RAG_Chatbot\rag_chatbot
+configfile: pytest.ini
+plugins: anyio-4.12.1, asyncio-0.23.3
+asyncio: mode=auto
+collecting ... collected 13 items / 12 deselected / 1 selected
+
+tests/test_step1_parsing.py::TestInspectOutput::test_inspect_parsed_documents 
+================================================================================
+FILE: 01_Employee_Handbook.pdf
+Pages: 7 | Text blocks: 24 (11 headings, 13 paragraphs) | Tables: 11
+================================================================================
+
+  TEXT BLOCKS (24 total)
+  --------------------------------------------------------------------------------
+
+  Block 1/24
+  Type: heading | Page: 1 | Section: Employee Handbook
+  --------------------------------------------------------------------------------
+  | Employee Handbook
+
+
+  Block 2/24
+  Type: paragraph | Page: 1 | Section: Employee Handbook
+  --------------------------------------------------------------------------------
+  | Comprehensive Guide to Policies, Benefits, and Workplace Standards Human Resources Department Version 3.2 | Effective January 1, 2026 | Approved by CEO & CHRO
+
+
+  Block 3/24
+  Type: paragraph | Page: 1 | Section: Employee Handbook
+  --------------------------------------------------------------------------------
+  | 1. Company Overview TechViet Solutions Joint Stock Company ("TechViet") was founded in 2018 and is headquartered in District 7, Ho Chi Minh City, Vietnam. We are a technology company specializing in enterprise software development, cloud infrastructure consulting, artificial intelligence solutions, and data engineering services. As of January 2026, TechViet employs 458 full-time staff and 32 long-term contractors across three offices in Ho Chi Minh City (headquarters, 320 staff), Hanoi (95 staff), and Da Nang (75 staff). Our client portfolio includes 45 active enterprise accounts spanning banking and financial services (VietBank, FinServe VN, MekongPay), healthcare (SaigonHealth, MediCare Plus), logistics and supply chain (VNLogistics, TransViet), retail and e-commerce (MegaMart, ShopNow), energy (PetroVN, GreenEnergy Corp), and government (GovTech VN, Ministry of Digital Transformation). Our annual revenue for FY2025 was approximately USD 18.2 million, representing 28% year-over-year growth.
+
+
+  Block 4/24
+  Type: paragraph | Page: 1 | Section: Employee Handbook
+  --------------------------------------------------------------------------------
+  | 1.1 Mission, Vision, and Core Values Our mission is to empower businesses across Southeast Asia through innovative, reliable, and scalable technology solutions. Our vision is to become the leading technology partner in the ASEAN region by 2030, recognized for technical excellence, client success, and engineering culture.
+
+
+  Block 5/24
+  Type: heading | Page: 1 | Section: 1.2 Organizational Structure
+  --------------------------------------------------------------------------------
+  | 1.2 Organizational Structure
+
+
+  Block 6/24
+  Type: heading | Page: 2 | Section: 2. Employment Policies
+  --------------------------------------------------------------------------------
+  | 2. Employment Policies
+
+
+  Block 7/24
+  Type: paragraph | Page: 2 | Section: 2. Employment Policies
+  --------------------------------------------------------------------------------
+  | 2.1 Working Hours and Flexibility Standard working hours are Monday through Friday, 8:30 AM to 5:30 PM (ICT), with a one-hour lunch break from 12:00 PM to 1:00 PM. TechViet observes a 40-hour work week in compliance with the Vietnamese Labor Code 2019 (Law No. 45/2019/QH14). Overtime must be pre-approved by the department head and is compensated at the rates mandated by law (150% for weekdays, 200% for weekends, 300% for public holidays). TechViet offers a hybrid work model for eligible positions. Remote work is permitted up to 2 days per week, subject to team agreements and manager approval. During remote days, employees must be reachable during core hours (10:00 AM ù 4:00 PM ICT) via Slack and Google Meet. Certain roles (office management, hardware IT support, reception) are not eligible for remote work. Teams in active client-facing delivery phases may temporarily require full in-office presence with 2 weeks' notice. A 4-day work week pilot program ran from January to March 2026 with 3 volunteer teams (42 employees). Preliminary results showed maintained productivity with improved employee satisfaction scores. HR is analyzing full results for presentation at the April all-hands meeting.
+
+
+  Block 8/24
+  Type: heading | Page: 2 | Section: 2.2 Leave Entitlements
+  --------------------------------------------------------------------------------
+  | 2.2 Leave Entitlements
+
+
+  Block 9/24
+  Type: paragraph | Page: 3 | Section: 2.2 Leave Entitlements
+  --------------------------------------------------------------------------------
+  | Leave requests must be submitted through the TechViet HR Portal (hr.techviet.vn) at least 3 business days in advance for planned absences. For urgent/emergency leave, employees must notify their direct supervisor by phone or Slack before 9:00 AM on the first day of absence and submit the formal request within 24 hours. Unapproved absences will be treated as unauthorized leave and may affect performance evaluations.
+
+
+  Block 10/24
+  Type: heading | Page: 3 | Section: 2.3 Public Holidays (2026)
+  --------------------------------------------------------------------------------
+  | 2.3 Public Holidays (2026)
+
+
+  Block 11/24
+  Type: heading | Page: 4 | Section: 3. Compensation and Benefits
+  --------------------------------------------------------------------------------
+  | 3. Compensation and Benefits
+
+
+  Block 12/24
+  Type: paragraph | Page: 4 | Section: 3. Compensation and Benefits
+  --------------------------------------------------------------------------------
+  | 3.1 Salary Structure and Career Ladder TechViet operates a market-competitive salary structure benchmarked annually against the top 25th percentile of the Vietnamese IT industry using data from Mercer, Robert Walters, and TopDev salary surveys. Salaries are reviewed during the annual Performance Review Cycle (December) with adjustments effective January 1. All salaries are paid on the last business day of each month via bank transfer to the employee's registered account.
+
+
+  Block 13/24
+  Type: paragraph | Page: 4 | Section: 3. Compensation and Benefits
+  --------------------------------------------------------------------------------
+  | The 13th-month salary (Tet bonus) is mandatory under Vietnamese law and paid in full in the January payroll. The performance-based bonus above is in addition to the 13th-month salary. Bonus payouts are tied to both individual performance ratings and company financial performance, with a company multiplier ranging from 0.8x to 1.2x applied to individual bonus targets.
+
+
+  Block 14/24
+  Type: heading | Page: 4 | Section: 3.2 Benefits Package
+  --------------------------------------------------------------------------------
+  | 3.2 Benefits Package
+
+
+  Block 15/24
+  Type: paragraph | Page: 6 | Section: 3.2 Benefits Package
+  --------------------------------------------------------------------------------
+  | 4. Performance Management TechViet uses a combination of OKRs (Objectives and Key Results) for goal-setting and a calibrated performance review process for evaluation. The system is designed to be fair, transparent, and growth-oriented. Performance data directly influences compensation adjustments, bonus payouts, promotion decisions, and learning & development investments.
+
+
+  Block 16/24
+  Type: heading | Page: 6 | Section: 4.1 Performance Cycle
+  --------------------------------------------------------------------------------
+  | 4.1 Performance Cycle
+
+
+  Block 17/24
+  Type: heading | Page: 6 | Section: 4.2 Performance Rating Scale
+  --------------------------------------------------------------------------------
+  | 4.2 Performance Rating Scale
+
+
+  Block 18/24
+  Type: paragraph | Page: 6 | Section: 4.2 Performance Rating Scale
+  --------------------------------------------------------------------------------
+  | Distribution guides are targets, not quotas. In exceptional years, distributions may skew higher. However, managers must justify deviations greater than 10 percentage points from the guide. All rating 1 and rating 5 decisions require VP-level approval and HR review.
+
+
+  Block 19/24
+  Type: heading | Page: 6 | Section: 5. Code of Conduct All employees, contractors, and temporary staff are expected to uphold TechViet's ethical standards and professional conduct at all times, whether in the office, at client sites, at company events, or in any context where they represent TechViet.
+  --------------------------------------------------------------------------------
+  | 5. Code of Conduct All employees, contractors, and temporary staff are expected to uphold TechViet's ethical standards and professional conduct at all times, whether in the office, at client sites, at company events, or in any context where they represent TechViet.
+
+
+  Block 20/24
+  Type: paragraph | Page: 6 | Section: 5. Code of Conduct All employees, contractors, and temporary staff are expected to uphold TechViet's ethical standards and professional conduct at all times, whether in the office, at client sites, at company events, or in any context where they represent TechViet.
+  --------------------------------------------------------------------------------
+  | 5.1 Anti-Harassment and Inclusion TechViet maintains a zero-tolerance policy toward harassment, discrimination, bullying, and retaliation in any form ù including verbal, physical, visual, and digital. This applies regardless of the individuals' positions or seniority. Protected
+
+
+  Block 21/24
+  Type: paragraph | Page: 7 | Section: 5. Code of Conduct All employees, contractors, and temporary staff are expected to uphold TechViet's ethical standards and professional conduct at all times, whether in the office, at client sites, at company events, or in any context where they represent TechViet.
+  --------------------------------------------------------------------------------
+  | categories include but are not limited to: gender, gender identity, sexual orientation, ethnicity, religion, age, disability, marital status, and pregnancy status. Reports can be made to your manager, HR Business Partner, or anonymously via the Ethics Hotline (ethics@techviet.vn or ext. 999). All reports are investigated within 5 business days. Retaliation against anyone who reports a concern in good faith is itself a terminable offense.
+
+
+  Block 22/24
+  Type: paragraph | Page: 7 | Section: 5. Code of Conduct All employees, contractors, and temporary staff are expected to uphold TechViet's ethical standards and professional conduct at all times, whether in the office, at client sites, at company events, or in any context where they represent TechViet.
+  --------------------------------------------------------------------------------
+  | 5.2 Confidentiality and Intellectual Property All employees sign a Non-Disclosure Agreement (NDA) and an Intellectual Property Assignment Agreement upon joining. The NDA covers all confidential information including client data, trade secrets, business strategies, unreleased products, and internal financial information. The NDA remains in effect for 24 months after separation from TechViet. Any invention, design, code, or creative work produced during employment and related to TechViet's business is the property of TechViet. Personal open-source contributions are encouraged but must not use TechViet proprietary code or client data. Employees must disclose any potential conflicts of interest, including consulting arrangements, board memberships, or significant financial interests in competitors or clients.
+
+
+  Block 23/24
+  Type: heading | Page: 7 | Section: 5.3 Disciplinary Process
+  --------------------------------------------------------------------------------
+  | 5.3 Disciplinary Process
+
+
+  Block 24/24
+  Type: paragraph | Page: 7 | Section: 5.3 Disciplinary Process
+  --------------------------------------------------------------------------------
+  | Gross misconduct (theft, fraud, violence, data breach, substance abuse at work) may result in immediate termination without progression through the above steps, subject to investigation and Labor Code requirements.
+
+
+  TABLES (11 total)
+  --------------------------------------------------------------------------------
+
+  Table 1/11: 'Table_p1_1' ù 2 columns (Core Value, What It Means in Practice), 5 rows
+  Page: 1 | Section: 
+  --------------------------------------------------------------------------------
+  | Table: Table_p1_1 | Page 1
+  | 
+  | Row 1:
+  |   Core Value: Innovation First
+  |   What It Means in Practice: We dedicate 15% of engineering time to experimentation. Every team runs at least one innovation sprint per quarter. Failed experiments are celebrated if they produce learning.
+  | 
+  | Row 2:
+  |   Core Value: Client Success
+  |   What It Means in Practice: We measure ourselves by client outcomes, not deliverables. Account health reviews happen monthly. Every engineer spends at least one day per quarter shadowing client operations.
+  | 
+  | Row 3:
+  |   Core Value: Integrity & Transparency
+  |   What It Means in Practice: We share bad news early. Project status reports are honest, not optimistic. We never misrepresent capabilities to win deals. All code reviews are frank and constructive.
+  | 
+  | Row 4:
+  |   Core Value: Collaboration
+  |   What It Means in Practice: Cross-functional squads are our default org structure. Knowledge hoarding is a performance issue. We document decisions and share context proactively.
+  | 
+  | Row 5:
+  |   Core Value: Continuous Learning
+  |   What It Means in Practice: Every employee has a VND 15M annual learning budget. We run internal tech talks weekly. Senior engineers are expected to mentor at least one junior colleague.
+
+
+  Table 2/11: 'Table_p1_2' ù 4 columns (Department, Head, Headcount, Key Responsibilities), 5 rows
+  Page: 1 | Section: 
+  --------------------------------------------------------------------------------
+  | Table: Table_p1_2 | Page 1
+  | 
+  | Row 1:
+  |   Department: Engineering
+  |   Head: Le Van Hung (VP)
+  |   Headcount: 255
+  |   Key Responsibilities: Product development, platform engineering, DevOps, QA
+  | 
+  | Row 2:
+  |   Department: AI & Data Science
+  |   Head: Dr. Tran Minh Khoa
+  |   Headcount: 52
+  |   Key Responsibilities: ML models, data pipelines, AI product features, research
+  | 
+  | Row 3:
+  |   Department: Product Management
+  |   Head: Nguyen Thi Hanh
+  |   Headcount: 18
+  |   Key Responsibilities: Roadmaps, requirements, client discovery, prioritization
+  | 
+  | Row 4:
+  |   Department: Design (UI/UX)
+  |   Head: Do Thanh Tam
+  |   Headcount: 18
+  |   Key Responsibilities: User research, interaction design, design systems
+  | 
+  | Row 5:
+  |   Department: Sales & Partnerships
+  |   Head: Hoang Duc Anh
+  |   Headcount: 25
+  |   Key Responsibilities: Business development, account management, proposals
+
+
+  Table 3/11: 'Table_p2_1' ù 4 columns (Department, Head, Headcount, Key Responsibilities), 4 rows
+  Page: 2 | Section: 1.2 Organizational Structure
+  --------------------------------------------------------------------------------
+  | Table: Table_p2_1 | Section: 1.2 Organizational Structure | Page 2
+  | 
+  | Row 1:
+  |   Department: People & Culture (HR)
+  |   Head: Nguyen Thi Mai
+  |   Headcount: 22
+  |   Key Responsibilities: Recruitment, L&D;, compensation, employee experience
+  | 
+  | Row 2:
+  |   Department: Finance & Operations
+  |   Head: Vo Minh Tuan
+  |   Headcount: 20
+  |   Key Responsibilities: Accounting, procurement, legal, office management
+  | 
+  | Row 3:
+  |   Department: IT & Security
+  |   Head: Le Hoang Nam (CISO)
+  |   Headcount: 28
+  |   Key Responsibilities: Infrastructure, security operations, compliance, IT support
+  | 
+  | Row 4:
+  |   Department: Executive Office
+  |   Head: Dr. Pham Quang Minh (CEO)
+  |   Headcount: 5
+  |   Key Responsibilities: Strategy, governance, investor relations
+
+
+  Table 4/11: 'Table_p2_2' ù 4 columns (Leave Type, Entitlement, Carry Over, Conditions & Notes), 9 rows
+  Page: 2 | Section: 1.2 Organizational Structure
+  --------------------------------------------------------------------------------
+  | Table: Table_p2_2 | Section: 1.2 Organizational Structure | Page 2
+  | 
+  | Row 1:
+  |   Leave Type: Annual Leave
+  |   Entitlement: 15 days/year
+  |   Carry Over: Max 5 days to following year
+  |   Conditions & Notes: Accrued monthly (1.25 days/month). Usable after 6-month probation. For employees with 5+ years tenure: 16 days. 10+ years: 18 days.
+  | 
+  | Row 2:
+  |   Leave Type: Sick Leave
+  |   Entitlement: 10 days/year (paid)
+  |   Carry Over: No carry over
+  |   Conditions & Notes: Medical certificate from licensed physician required for absences of 3+ consecutive days. First 2 days may be self-certified.
+  | 
+  | Row 3:
+  |   Leave Type: Personal Leave
+  |   Entitlement: 3 days/year
+  |   Carry Over: No carry over
+  |   Conditions & Notes: For personal emergencies, family events (weddings, funerals), or urgent household matters. Manager notification required by 9 AM.
+  | 
+  | Row 4:
+  |   Leave Type: Maternity Leave
+  |   Entitlement: 6 months (180 days)
+  |   Carry Over: N/A
+  |   Conditions & Notes: Per Vietnamese Labor Code Article 139. Full salary paid by social insurance. Additional 1 month for multiple births.
+  | 
+  | Row 5:
+  |   Leave Type: Paternity Leave
+  |   Entitlement: 7 days (paid)
+  |   Carry Over: N/A
+  |   Conditions & Notes: Must be taken within 30 days of child's birth. Applies to legal father or same-sex partner (TechViet policy, exceeding legal minimum).
+  | 
+  | Row 6:
+  |   Leave Type: Bereavement Leave
+  |   Entitlement: 3-5 days (paid)
+  |   Carry Over: N/A
+  |   Conditions & Notes: 3 days for immediate family (parents, spouse, children). 5 days if travel to another province is required. 1 day for extended family.
+  | 
+  | Row 7:
+  |   Leave Type: Study/Exam Leave
+  |   Entitlement: 5 days/year
+  |   Carry Over: No carry over
+  |   Conditions & Notes: For approved professional certifications and examinations. Must submit certification plan to manager 30 days in advance.
+  | 
+  | Row 8:
+  |   Leave Type: Marriage Leave
+  |   Entitlement: 3 days (paid)
+  |   Carry Over: N/A
+  |   Conditions & Notes: For the employee's own wedding. 1 day for child's wedding. Per Labor Code Article 115.
+  | 
+  | Row 9:
+  |   Leave Type: Unpaid Leave
+  |   Entitlement: Up to 30 days/year
+  |   Carry Over: N/A
+  |   Conditions & Notes: Requires VP approval. Benefits continue for first 15 days. Extended unpaid leave (30+ days) requires CHRO approval.
+
+
+  Table 5/11: 'Table_p3_1' ù 4 columns (Holiday, Date(s) in 2026, Days Off, Notes), 6 rows
+  Page: 3 | Section: 2.2 Leave Entitlements
+  --------------------------------------------------------------------------------
+  | Table: Table_p3_1 | Section: 2.2 Leave Entitlements | Page 3
+  | 
+  | Row 1:
+  |   Holiday: New Year's Day
+  |   Date(s) in 2026: January 1 (Thursday)
+  |   Days Off: 1
+  |   Notes: If falls on weekend, following Monday is off
+  | 
+  | Row 2:
+  |   Holiday: Lunar New Year (Tet)
+  |   Date(s) in 2026: January 26 ù January 30
+  |   Days Off: 5
+  |   Notes: Office closed Jan 24 ù Feb 2 (including weekends). Exact dates follow government announcement.
+  | 
+  | Row 3:
+  |   Holiday: Hung Kings' Commemoration
+  |   Date(s) in 2026: April 6 (Monday)
+  |   Days Off: 1
+  |   Notes: 10th day of 3rd lunar month
+  | 
+  | Row 4:
+  |   Holiday: Reunification Day
+  |   Date(s) in 2026: April 30 (Thursday)
+  |   Days Off: 1
+  |   Notes: Bridge day policy: if Thu/Tue, company may grant Fri/Mon off (announced annually)
+  | 
+  | Row 5:
+  |   Holiday: International Labour Day
+  |   Date(s) in 2026: May 1 (Friday)
+  |   Days Off: 1
+  |   Notes: Combined with Reunification Day for potential 4-day weekend
+  | 
+  | Row 6:
+  |   Holiday: National Day
+  |   Date(s) in 2026: September 2-3 (Wed-Thu)
+  |   Days Off: 2
+  |   Notes: Per Decree 145/2024: Sep 2 + 1 additional day
+
+
+  Table 6/11: 'Table_p4_1' ù 5 columns (Lev el, Title Examples, Monthly Gross (VND), Typical Experience, ...), 6 rows
+  Page: 4 | Section: 2.3 Public Holidays (2026)
+  --------------------------------------------------------------------------------
+  | Table: Table_p4_1 | Section: 2.3 Public Holidays (2026) | Page 4
+  | 
+  | Row 1:
+  |   Lev el: L1
+  |   Title Examples: Junior Engineer, Associate Designer, Analyst
+  |   Monthly Gross (VND): 15,000,000 ù 25,000,000
+  |   Typical Experience: 0-2 years
+  |   Annual Bonus Target: 1.0 month salary
+  | 
+  | Row 2:
+  |   Lev el: L2
+  |   Title Examples: Mid-level Engineer, Specialist, Senior Analyst
+  |   Monthly Gross (VND): 25,000,000 ù 40,000,000
+  |   Typical Experience: 2-5 years
+  |   Annual Bonus Target: 1.5 months salary
+  | 
+  | Row 3:
+  |   Lev el: L3
+  |   Title Examples: Senior Engineer, Lead Designer, Senior PM
+  |   Monthly Gross (VND): 40,000,000 ù 60,000,000
+  |   Typical Experience: 5-8 years
+  |   Annual Bonus Target: 2.0 months salary
+  | 
+  | Row 4:
+  |   Lev el: L4
+  |   Title Examples: Principal Engineer, Engineering Manager, Director
+  |   Monthly Gross (VND): 60,000,000 ù 85,000,000
+  |   Typical Experience: 8-12 years
+  |   Annual Bonus Target: 2.5 months salary
+  | 
+  | Row 5:
+  |   Lev el: L5
+  |   Title Examples: Distinguished Engineer, VP, Senior Director
+  |   Monthly Gross (VND): 85,000,000 ù 130,000,000
+  |   Typical Experience: 12+ years
+  |   Annual Bonus Target: 3.0 months salary
+  | 
+  | Row 6:
+  |   Lev el: L6
+  |   Title Examples: CTO, CEO, C-Suite Executives
+  |   Monthly Gross (VND): 130,000,000+
+  |   Typical Experience: Per contract
+  |   Annual Bonus Target: Per executive agreement
+
+
+  Table 7/11: 'Table_p4_2' ù 3 columns (Benefit, Details, Eligibility), 8 rows
+  Page: 4 | Section: 2.3 Public Holidays (2026)
+  --------------------------------------------------------------------------------
+  | Table: Table_p4_2 | Section: 2.3 Public Holidays (2026) | Page 4
+  | 
+  | Row 1:
+  |   Benefit: Health Insurance
+  |   Details: Premium plan (PVI Insurance) covering employee + up to 2 dependents. Includes inpatient, outpatient, and emergency coverage up to VND 500M/year. Dental (VND 10M/year) and vision (VND 5M/year) included for L3+.
+  |   Eligibility: All FTE after probation
+  | 
+  | Row 2:
+  |   Benefit: Life Insurance
+  |   Details: Coverage equal to 24x monthly gross salary. Accidental death & dismemberment: 48x monthly salary.
+  |   Eligibility: All FTE
+  | 
+  | Row 3:
+  |   Benefit: Lunch Allowance
+  |   Details: VND 50,000/working day loaded onto meal card (Sodexo). Valid at 200+ partner restaurants near each office.
+  |   Eligibility: All FTE
+  | 
+  | Row 4:
+  |   Benefit: Transportation
+  |   Details: VND 1,000,000/month parking or commuting allowance. Electric vehicle charging available at HCM office (free).
+  |   Eligibility: All FTE
+  | 
+  | Row 5:
+  |   Benefit: Learning & Development
+  |   Details: VND 15,000,000/year for courses, conferences, certifications, and books. Pre-approval required for amounts >VND 5M. Conference travel covered separately per travel policy.
+  |   Eligibility: All FTE
+  | 
+  | Row 6:
+  |   Benefit: Gym & Wellness
+  |   Details: 50% subsidy on gym membership at partner fitness centers (California Fitness, Elite Fitness). Annual health checkup at premium clinic (fully covered).
+  |   Eligibility: All FTE
+  | 
+  | Row 7:
+  |   Benefit: Employee Stock Option Plan
+  |   Details: ESOP available for L3+ employees after 2 years of continuous service. 4-year vesting with 1-year cliff. Pool size: 5% of total equity.
+  |   Eligibility: L3+ after 2 years
+  | 
+  | Row 8:
+  |   Benefit: Equipment
+  |   Details: Company-issued laptop (MacBook Pro 14" or Dell XPS 15, refreshed every 3 years). External monitor (27" 4K) and ergonomic accessories provided. WFH setup allowance: VND 5,000,000 one-time.
+  |   Eligibility: All FTE
+
+
+  Table 8/11: 'Table_p5_1' ù 3 columns (Benefit, Details, Eligibility), 2 rows
+  Page: 5 | Section: 3.2 Benefits Package
+  --------------------------------------------------------------------------------
+  | Table: Table_p5_1 | Section: 3.2 Benefits Package | Page 5
+  | 
+  | Row 1:
+  |   Benefit: Relocation Assistance
+  |   Details: VND 20,000,000 relocation package for employees transferring between offices. Includes 1 month temporary housing.
+  |   Eligibility: Inter-office transfers
+  | 
+  | Row 2:
+  |   Benefit: Referral Bonus
+  |   Details: VND 10,000,000 for successful engineering referrals (paid after 3-month probation of referred employee). VND 5,000,000 for non-engineering roles.
+  |   Eligibility: All employees
+
+
+  Table 9/11: 'Table_p6_1' ù 4 columns (Phase, Timing, Activities, Participants), 6 rows
+  Page: 6 | Section: 3.2 Benefits Package
+  --------------------------------------------------------------------------------
+  | Table: Table_p6_1 | Section: 3.2 Benefits Package | Page 6
+  | 
+  | Row 1:
+  |   Phase: Goal Setting
+  |   Timing: January (Q1) and July (Q3)
+  |   Activities: Set 3-5 OKRs aligned with team and company goals. Include at least 1 growth/learning objective.
+  |   Participants: Employee + Manager
+  | 
+  | Row 2:
+  |   Phase: Continuous Feedback
+  |   Timing: Ongoing (minimum monthly)
+  |   Activities: 1-on-1 meetings, peer feedback via Culture Amp, project retrospectives. Managers document notable contributions and areas for growth.
+  |   Participants: Employee + Manager + Peers
+  | 
+  | Row 3:
+  |   Phase: Mid-Year Check-in
+  |   Timing: June
+  |   Activities: Formal progress review. Adjust OKRs if business priorities shifted. Identify blockers and support needed. Not rated.
+  |   Participants: Employee + Manager
+  | 
+  | Row 4:
+  |   Phase: Annual Review
+  |   Timing: December
+  |   Activities: Comprehensive evaluation against OKRs. Self-assessment, manager assessment, and 360 peer feedback (minimum 3 peers). Performance rating assigned.
+  |   Participants: Employee + Manager + Peers + HR
+  | 
+  | Row 5:
+  |   Phase: Calibration
+  |   Timing: Late December
+  |   Activities: Department heads review all ratings to ensure consistency and reduce bias. HR facilitates cross-department calibration.
+  |   Participants: Department Heads + HR
+  | 
+  | Row 6:
+  |   Phase: Outcome Communication
+  |   Timing: January
+  |   Activities: Ratings, compensation adjustments, and development plans communicated in 1-on-1. Appeal process available.
+  |   Participants: Employee + Manager
+
+
+  Table 10/11: 'Table_p6_2' ù 6 columns (Rati ng, Label, Description, Salary Adj., ...), 5 rows
+  Page: 6 | Section: 3.2 Benefits Package
+  --------------------------------------------------------------------------------
+  | Table: Table_p6_2 | Section: 3.2 Benefits Package | Page 6
+  | 
+  | Row 1:
+  |   Rati ng: 5
+  |   Label: Exceptional
+  |   Description: Consistently exceeds all expectations. Recognized impact beyond own team. Role model for others.
+  |   Salary Adj.: 12-18%
+  |   Bonus Mult.: 1.5x
+  |   Distribution Guide: ~5% of employees
+  | 
+  | Row 2:
+  |   Rati ng: 4
+  |   Label: Exceeds Expectations
+  |   Description: Frequently delivers above expectations. Takes initiative on complex challenges. Strong peer feedback.
+  |   Salary Adj.: 8-12%
+  |   Bonus Mult.: 1.25x
+  |   Distribution Guide: ~20% of employees
+  | 
+  | Row 3:
+  |   Rati ng: 3
+  |   Label: Meets Expectations
+  |   Description: Reliably delivers quality work. Meets all OKRs. Solid contributor to team goals.
+  |   Salary Adj.: 5-8%
+  |   Bonus Mult.: 1.0x
+  |   Distribution Guide: ~55% of employees
+  | 
+  | Row 4:
+  |   Rati ng: 2
+  |   Label: Developing
+  |   Description: Partially meets expectations. Specific areas need improvement. Performance Improvement Plan (PIP) if consecutive.
+  |   Salary Adj.: 0-3%
+  |   Bonus Mult.: 0.5x
+  |   Distribution Guide: ~15% of employees
+  | 
+  | Row 5:
+  |   Rati ng: 1
+  |   Label: Below Expectations
+  |   Description: Consistently fails to meet core expectations. Immediate PIP required. If no improvement in 90 days, may lead to separation.
+  |   Salary Adj.: 0%
+  |   Bonus Mult.: 0x
+  |   Distribution Guide: ~5% of employees
+
+
+  Table 11/11: 'Table_p7_1' ù 4 columns (Step, Action, Duration, Documentation), 4 rows
+  Page: 7 | Section: 5. Code of Conduct All employees, contractors, and temporary staff are expected to uphold TechViet's ethical standards and professional conduct at all times, whether in the office, at client sites, at company events, or in any context where they represent TechViet.
+  --------------------------------------------------------------------------------
+  | Table: Table_p7_1 | Section: 5. Code of Conduct All employees, contractors, and temporary staff are expected to uphold TechViet's ethical standards and professional conduct at all times, whether in the office, at client sites, at company events, or in any context where they represent TechViet. | Page 7
+  | 
+  | Row 1:
+  |   Step: 1. Verbal Warning
+  |   Action: Manager discusses concern with employee. Clear expectations set.
+  |   Duration: Immediate
+  |   Documentation: Manager's notes (shared with employee)
+  | 
+  | Row 2:
+  |   Step: 2. Written Warning
+  |   Action: Formal letter detailing the issue, expected improvement, and timeline. Copy to HR.
+  |   Duration: 30-day review period
+  |   Documentation: HR file; signed acknowledgment
+  | 
+  | Row 3:
+  |   Step: 3. Final Warning / PIP
+  |   Action: Performance Improvement Plan with specific, measurable goals. Weekly check-ins.
+  |   Duration: 60-90 days
+  |   Documentation: PIP document; weekly progress notes
+  | 
+  | Row 4:
+  |   Step: 4. Termination
+  |   Action: If no improvement after PIP, employment may be terminated per Labor Code procedures.
+  |   Duration: Per legal requirements
+  |   Documentation: Full documentation package; HR review
+
+
+================================================================================
+FILE: 03_Onboarding_Guide.pdf
+Pages: 4 | Text blocks: 9 (5 headings, 4 paragraphs) | Tables: 7
+================================================================================
+
+  TEXT BLOCKS (9 total)
+  --------------------------------------------------------------------------------
+
+  Block 1/9
+  Type: heading | Page: 1 | Section: New Employee Onboarding Guide
+  --------------------------------------------------------------------------------
+  | New Employee Onboarding Guide
+
+
+  Block 2/9
+  Type: paragraph | Page: 1 | Section: New Employee Onboarding Guide
+  --------------------------------------------------------------------------------
+  | Your Comprehensive Guide to the First 90 Days at TechViet People & Culture Team Version 2.3 | Last Updated: February 2026
+
+
+  Block 3/9
+  Type: paragraph | Page: 1 | Section: New Employee Onboarding Guide
+  --------------------------------------------------------------------------------
+  | Welcome to TechViet! We are thrilled to have you join our team. This guide contains everything you need for a successful start. Your onboarding buddy and direct manager are your primary contacts ù never hesitate to ask questions. We believe the first 90 days are critical for your long-term success, and we've designed this program to set you up for it.
+
+
+  Block 4/9
+  Type: heading | Page: 1 | Section: 1. Pre-Start Preparation The following tasks should be completed before your first day. HR and IT will reach out to you via your personal email to coordinate. If any items are incomplete by your start date, notify your HR Business Partner immediately.
+  --------------------------------------------------------------------------------
+  | 1. Pre-Start Preparation The following tasks should be completed before your first day. HR and IT will reach out to you via your personal email to coordinate. If any items are incomplete by your start date, notify your HR Business Partner immediately.
+
+
+  Block 5/9
+  Type: heading | Page: 1 | Section: 2. Day 1 Detailed Schedule
+  --------------------------------------------------------------------------------
+  | 2. Day 1 Detailed Schedule
+
+
+  Block 6/9
+  Type: paragraph | Page: 3 | Section: 2. Day 1 Detailed Schedule
+  --------------------------------------------------------------------------------
+  | 3. Week 1 Mandatory Training Program All training modules must be completed by the end of your first week. Training is tracked via the TechViet LMS (learn.techviet.vn). Your manager and HR will be notified if any modules are overdue. Engineering-specific training is in addition to the general modules.
+
+
+  Block 7/9
+  Type: paragraph | Page: 3 | Section: 2. Day 1 Detailed Schedule
+  --------------------------------------------------------------------------------
+  | 4. 30-60-90 Day Milestone Framework Your onboarding success is measured against the milestones below. Your manager will review progress at the 30, 60, and 90-day marks. These conversations are documented and shared with HR. Successful completion of the 90-day milestone marks the end of your probation period.
+
+
+  Block 8/9
+  Type: heading | Page: 4 | Section: 5. Key Tools, Systems, and Access
+  --------------------------------------------------------------------------------
+  | 5. Key Tools, Systems, and Access
+
+
+  Block 9/9
+  Type: heading | Page: 4 | Section: 6. Key Contacts
+  --------------------------------------------------------------------------------
+  | 6. Key Contacts
+
+
+  TABLES (7 total)
+  --------------------------------------------------------------------------------
+
+  Table 1/7: 'Table_p1_1' ù 4 columns (Task, Owner, Deadline, Instructions), 7 rows
+  Page: 1 | Section: 
+  --------------------------------------------------------------------------------
+  | Table: Table_p1_1 | Page 1
+  | 
+  | Row 1:
+  |   Task: Sign employment contract and NDA
+  |   Owner: HR
+  |   Deadline: 5 days before start
+  |   Instructions: Digital signature via DocuSign. Review carefully; ask HR for clarification on any clause.
+  | 
+  | Row 2:
+  |   Task: Submit bank details for payroll
+  |   Owner: New Hire
+  |   Deadline: 3 days before start
+  |   Instructions: Form sent to personal email. Must be a Vietnamese bank account in your name.
+  | 
+  | Row 3:
+  |   Task: Complete background check
+  |   Owner: HR (vendor)
+  |   Deadline: Before start
+  |   Instructions: You'll receive an email from our vendor (First Advantage). Respond within 48 hours.
+  | 
+  | Row 4:
+  |   Task: Prepare laptop and peripherals
+  |   Owner: IT
+  |   Deadline: 1 day before start
+  |   Instructions: Laptop pre-configured with standard software. Monitor and accessories at your desk.
+  | 
+  | Row 5:
+  |   Task: Create corporate accounts
+  |   Owner: IT
+  |   Deadline: 1 day before start
+  |   Instructions: Google Workspace, Slack, Jira, GitHub. Credentials sent to personal email.
+  | 
+  | Row 6:
+  |   Task: Assign onboarding buddy
+  |   Owner: Manager
+  |   Deadline: Before start
+  |   Instructions: Your buddy is a team member who joined 6-12 months ago. They'll reach out to introduce themselves.
+  | 
+  | Row 7:
+  |   Task: Set up desk and welcome kit
+  |   Owner: Office Mgmt
+  |   Deadline: 1 day before start
+  |   Instructions: Welcome kit includes: notebook, branded merchandise, office map, emergency contacts card.
+
+
+  Table 2/7: 'Table_p1_2' ù 5 columns (Time, Activity, Location / Link, Contact Person, ...), 4 rows
+  Page: 1 | Section: 
+  --------------------------------------------------------------------------------
+  | Table: Table_p1_2 | Page 1
+  | 
+  | Row 1:
+  |   Time: 8:30
+  |   Activity: Arrive at reception. Security will issue your temporary badge. Your buddy meets you at lobby.
+  |   Location / Link: Ground floor lobby, main entrance
+  |   Contact Person: Buddy / Reception
+  |   What to Bring: Government ID
+  | 
+  | Row 2:
+  |   Time: 9:00
+  |   Activity: HR welcome session: company overview, org chart, culture, policies summary, Q&A;
+  |   Location / Link: Meeting Room A3, 3rd Floor (or Zoom link for remote)
+  |   Contact Person: HR Business Partner
+  |   What to Bring: Nothing ù materials provided
+  | 
+  | Row 3:
+  |   Time: 9:45
+  |   Activity: IT setup: laptop handoff, account activation, VPN config, MFA enrollment (bring phone for authenticator)
+  |   Location / Link: IT Help Desk, 2nd Floor
+  |   Contact Person: IT Support (Tran Van Duc)
+  |   What to Bring: Personal phone for MFA setup
+  | 
+  | Row 4:
+  |   Time: 10:3 0
+  |   Activity: Office tour: floors, emergency exits, kitchen, gym, prayer room, mother's room, bike storage
+  |   Location / Link: All floors
+  |   Contact Person: Office Manager
+  |   What to Bring: Comfortable shoes
+
+
+  Table 3/7: 'Table_p2_1' ù 5 columns (Time, Activity, Location / Link, Contact Person, ...), 7 rows
+  Page: 2 | Section: 2. Day 1 Detailed Schedule
+  --------------------------------------------------------------------------------
+  | Table: Table_p2_1 | Section: 2. Day 1 Detailed Schedule | Page 2
+  | 
+  | Row 1:
+  |   Time: 11:0 0
+  |   Activity: Team introduction: meet your direct manager and team members, see the team board, learn about current sprint
+  |   Location / Link: Team area
+  |   Contact Person: Direct Manager
+  |   What to Bring: Curiosity and questions!
+  | 
+  | Row 2:
+  |   Time: 12:0 0
+  |   Activity: Welcome lunch with team ù on the company. Your buddy will guide you to the restaurant.
+  |   Location / Link: Partner restaurant, ground floor
+  |   Contact Person: Buddy
+  |   What to Bring: Nothing
+  | 
+  | Row 3:
+  |   Time: 13:3 0
+  |   Activity: Company strategy and product overview presentation by CEO or COO
+  |   Location / Link: Auditorium, 5th Floor
+  |   Contact Person: CEO or COO
+  |   What to Bring: Notebook for notes
+  | 
+  | Row 4:
+  |   Time: 14:3 0
+  |   Activity: Benefits enrollment: health insurance, meal card, transportation, emergency contacts, tax forms
+  |   Location / Link: HR Office, 3rd Floor
+  |   Contact Person: HR Coordinator
+  |   What to Bring: Dependent info (for insurance)
+  | 
+  | Row 5:
+  |   Time: 15:3 0
+  |   Activity: Mandatory security awareness training (1 hour, interactive)
+  |   Location / Link: Training Room B2 / Zoom
+  |   Contact Person: Security Team
+  |   What to Bring: Laptop
+  | 
+  | Row 6:
+  |   Time: 16:3 0
+  |   Activity: Development environment setup (Engineering) or tool-specific training (Non-engineering)
+  |   Location / Link: Your desk
+  |   Contact Person: Buddy / Team Lead
+  |   What to Bring: Laptop
+  | 
+  | Row 7:
+  |   Time: 17:0 0
+  |   Activity: Day 1 debrief with manager: first impressions, answer questions, plan for rest of week
+  |   Location / Link: Manager's desk or 1-on-1 room
+  |   Contact Person: Direct Manager
+  |   What to Bring: Your questions!
+
+
+  Table 4/7: 'Table_p3_1' ù 6 columns (Module, Duration, Platform, Day, ...), 9 rows
+  Page: 3 | Section: 2. Day 1 Detailed Schedule
+  --------------------------------------------------------------------------------
+  | Table: Table_p3_1 | Section: 2. Day 1 Detailed Schedule | Page 3
+  | 
+  | Row 1:
+  |   Module: Information Security Fundamentals
+  |   Duration: 2 hours
+  |   Platform: LMS (self-paced)
+  |   Day: Day 2
+  |   Assessment: Quiz (20 questions)
+  |   Passing Score: 80%
+  | 
+  | Row 2:
+  |   Module: Code of Conduct & Business Ethics
+  |   Duration: 1 hour
+  |   Platform: LMS (self-paced)
+  |   Day: Day 2
+  |   Assessment: Acknowledgment + Quiz
+  |   Passing Score: 100% ack, 80% quiz
+  | 
+  | Row 3:
+  |   Module: Anti-Harassment, Diversity & Inclusion
+  |   Duration: 1.5 hours
+  |   Platform: LMS (video + scenarios)
+  |   Day: Day 3
+  |   Assessment: Scenario-based quiz
+  |   Passing Score: 80%
+  | 
+  | Row 4:
+  |   Module: Data Privacy & Compliance (PDPD/GDPR)
+  |   Duration: 1 hour
+  |   Platform: LMS (self-paced)
+  |   Day: Day 3
+  |   Assessment: Quiz + certification
+  |   Passing Score: 85%
+  | 
+  | Row 5:
+  |   Module: TechViet Product & Service Overview
+  |   Duration: 1.5 hours
+  |   Platform: Live session (recorded)
+  |   Day: Day 4
+  |   Assessment: None (informational)
+  |   Passing Score: N/A
+  | 
+  | Row 6:
+  |   Module: Git Workflow & Code Review (Eng only)
+  |   Duration: 2 hours
+  |   Platform: Live workshop
+  |   Day: Day 4
+  |   Assessment: Submit practice PR
+  |   Passing Score: PR approved by mentor
+  | 
+  | Row 7:
+  |   Module: CI/CD & Deployment (Eng only)
+  |   Duration: 1.5 hours
+  |   Platform: Live workshop
+  |   Day: Day 4
+  |   Assessment: Deploy to dev env
+  |   Passing Score: Successful deploy
+  | 
+  | Row 8:
+  |   Module: Architecture & Tech Stack (Eng only)
+  |   Duration: 2 hours
+  |   Platform: Live session + self-study
+  |   Day: Day 5
+  |   Assessment: Architecture quiz
+  |   Passing Score: 75%
+  | 
+  | Row 9:
+  |   Module: Client Communication Standards
+  |   Duration: 1 hour
+  |   Platform: LMS (self-paced)
+  |   Day: Day 5
+  |   Assessment: Scenario quiz
+  |   Passing Score: 80%
+
+
+  Table 5/7: 'Table_p3_2' ù 4 columns (Period, Engineering Track, Non-Engineering Track, Evaluation Method), 3 rows
+  Page: 3 | Section: 2. Day 1 Detailed Schedule
+  --------------------------------------------------------------------------------
+  | Table: Table_p3_2 | Section: 2. Day 1 Detailed Schedule | Page 3
+  | 
+  | Row 1:
+  |   Period: Day 1-30: Learn
+  |   Engineering Track: Complete dev environment and all training. Read team's top 10 architecture docs. Merge first PR (bug fix or small feature). Shadow 3+ code reviews. Understand team's on-call rotation.
+  |   Non-Engineering Track: Complete all training modules. Shadow 3+ client meetings or stakeholder sessions. Deliver first small assignment. Learn team's tools and workflows end-to-end.
+  |   Evaluation Method: 30-day check-in with manager. Self-assessment form. Buddy feedback (informal).
+  | 
+  | Row 2:
+  |   Period: Day 31-60: Contribute
+  |   Engineering Track: Own a feature or module end-to-end (design, implement, test, deploy). Participate actively in sprint planning and retros. Conduct at least 2 code reviews. Give a 15-min tech talk to team.
+  |   Non-Engineering Track: Own a workstream or deliverable independently. Lead or co-lead a meeting with stakeholders. Contribute meaningfully to team OKRs. Present work at team meeting.
+  |   Evaluation Method: 60-day check-in with manager. Peer feedback from 2 colleagues. Review of deliverables.
+  | 
+  | Row 3:
+  |   Period: Day 61-90: Own
+  |   Engineering Track: Deliver feature with minimal guidance. Begin mentoring newer members. Propose at least 1 process or technical improvement. Participate in on-call rotation. Complete probation review.
+  |   Non-Engineering Track: Manage deliverables fully independently. Drive cross-team collaboration on at least 1 initiative. Propose process improvement. Complete probation review.
+  |   Evaluation Method: 90-day formal review (manager + HR). 360 feedback from 3+ peers. Probation decision communicated.
+
+
+  Table 6/7: 'Table_p4_1' ù 5 columns (Tool, Purpose, URL, Login Method, ...), 10 rows
+  Page: 4 | Section: 2. Day 1 Detailed Schedule
+  --------------------------------------------------------------------------------
+  | Table: Table_p4_1 | Section: 2. Day 1 Detailed Schedule | Page 4
+  | 
+  | Row 1:
+  |   Tool: Google Workspace
+  |   Purpose: Email, calendar, documents, video calls
+  |   URL: mail.techviet.vn
+  |   Login Method: SSO (primary identity)
+  |   Help Channel: #general
+  | 
+  | Row 2:
+  |   Tool: Slack
+  |   Purpose: Real-time messaging, team channels, incident response
+  |   URL: techviet.slack.com
+  |   Login Method: SSO via Google
+  |   Help Channel: #it-helpdesk
+  | 
+  | Row 3:
+  |   Tool: Jira
+  |   Purpose: Sprint planning, issue tracking, project management
+  |   URL: jira.techviet.vn
+  |   Login Method: SSO
+  |   Help Channel: #eng-support
+  | 
+  | Row 4:
+  |   Tool: Confluence
+  |   Purpose: Documentation wiki, knowledge base, runbooks
+  |   URL: wiki.techviet.vn
+  |   Login Method: SSO
+  |   Help Channel: #eng-support
+  | 
+  | Row 5:
+  |   Tool: GitHub Enterprise
+  |   Purpose: Source code, pull requests, CI/CD, code review
+  |   URL: github.techviet.vn
+  |   Login Method: SSO + MFA (YubiKey)
+  |   Help Channel: #eng-support
+  | 
+  | Row 6:
+  |   Tool: AWS Console
+  |   Purpose: Cloud infrastructure (Engineering/DevOps only)
+  |   URL: aws.techviet.vn
+  |   Login Method: SSO + MFA + VPN required
+  |   Help Channel: #devops
+  | 
+  | Row 7:
+  |   Tool: HR Portal
+  |   Purpose: Leave requests, payslips, benefits, personal info
+  |   URL: hr.techviet.vn
+  |   Login Method: SSO
+  |   Help Channel: #hr-support
+  | 
+  | Row 8:
+  |   Tool: TechViet LMS
+  |   Purpose: Training modules, certifications, learning paths
+  |   URL: learn.techviet.vn
+  |   Login Method: SSO
+  |   Help Channel: #learning
+  | 
+  | Row 9:
+  |   Tool: 1Password Teams
+  |   Purpose: Password manager (shared vaults for team credentials)
+  |   URL: Desktop app
+  |   Login Method: SSO + Master password
+  |   Help Channel: #it-helpdesk
+  | 
+  | Row 10:
+  |   Tool: Datadog
+  |   Purpose: Application monitoring, logs, dashboards (Eng only)
+  |   URL: app.datadoghq.co m
+  |   Login Method: SSO + VPN for some dashboards
+  |   Help Channel: #observability
+
+
+  Table 7/7: 'Table_p4_2' ù 5 columns (Department, Contact Person, Email, Slack, ...), 6 rows
+  Page: 4 | Section: 2. Day 1 Detailed Schedule
+  --------------------------------------------------------------------------------
+  | Table: Table_p4_2 | Section: 2. Day 1 Detailed Schedule | Page 4
+  | 
+  | Row 1:
+  |   Department: HR / People & Culture
+  |   Contact Person: Nguyen Thi Mai (CHRO)
+  |   Email: mai.nguyen@techviet.vn
+  |   Slack: #hr-support
+  |   Office Hours: Mon-Fri 9-5
+  | 
+  | Row 2:
+  |   Department: IT Help Desk
+  |   Contact Person: Tran Van Duc (IT Manager)
+  |   Email: it-support@techviet.vn
+  |   Slack: #it-helpdesk
+  |   Office Hours: Mon-Fri 8-6
+  | 
+  | Row 3:
+  |   Department: Security Team (SOC)
+  |   Contact Person: Le Hoang Nam (CISO)
+  |   Email: soc@techviet.vn
+  |   Slack: #security-incidents
+  |   Office Hours: 24/7
+  | 
+  | Row 4:
+  |   Department: Office Management
+  |   Contact Person: Pham Thanh Hoa
+  |   Email: office@techviet.vn
+  |   Slack: #office-hcm
+  |   Office Hours: Mon-Fri 8:30-5:30
+  | 
+  | Row 5:
+  |   Department: Finance / Payroll
+  |   Contact Person: Vo Minh Tuan (CFO)
+  |   Email: payroll@techviet.vn
+  |   Slack: #finance-support
+  |   Office Hours: Mon-Fri 9-5
+  | 
+  | Row 6:
+  |   Department: Learning & Development
+  |   Contact Person: Dang Thu Huong
+  |   Email: learning@techviet.vn
+  |   Slack: #learning
+  |   Office Hours: Mon-Fri 9-5
+
+
+================================================================================
+DONE
+================================================================================
+PASSED
+
+====================== 1 passed, 12 deselected in 2.08s =======================
