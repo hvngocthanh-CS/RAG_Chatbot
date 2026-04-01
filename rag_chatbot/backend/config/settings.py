@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # --- Application ---
     APP_NAME: str = "RAG Chatbot"
     APP_VERSION: str = "2.0.0"
+    APP_ENVIRONMENT: str = "development"
     DEBUG: bool = False
 
     # --- API ---
@@ -36,12 +37,16 @@ class Settings(BaseSettings):
     LLM_FREQUENCY_PENALTY: float = 0.3
 
     # --- Resilience ---
+    REQUEST_TIMEOUT: int = 120
     CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
     CIRCUIT_BREAKER_RECOVERY_TIMEOUT: int = 30
+    RETRY_ENABLED: bool = True
     RETRY_MAX_ATTEMPTS: int = 3
     RETRY_INITIAL_DELAY: float = 1.0
     RETRY_MAX_DELAY: float = 10.0
+    RETRY_EXPONENTIAL_BASE: float = 2.0
     MAX_CONCURRENT_REQUESTS: int = 50
+    HEALTH_CHECK_TIMEOUT: int = 10
 
     # --- Embeddings ---
     EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
@@ -57,15 +62,13 @@ class Settings(BaseSettings):
     COLLECTION_NAME: str = "documents"
 
     # --- Document Processing ---
-    CHUNK_SIZE: int = 500
-    CHUNK_OVERLAP: int = 100
     MAX_FILE_SIZE_MB: int = 50
     SUPPORTED_EXTENSIONS: List[str] = [".pdf", ".docx", ".txt", ".md"]
-    CHUNKING_STRATEGY: Literal["token", "semantic"] = "semantic"
-    SEMANTIC_SIMILARITY_THRESHOLD: float = 0.4
-    SEMANTIC_MAX_CHUNK_SIZE: int = 600
-    SEMANTIC_MIN_CHUNK_SIZE: int = 80
-    SEMANTIC_OVERLAP_SENTENCES: int = 3
+
+    # Section-Aware Chunker
+    SECTION_MAX_CHUNK_TOKENS: int = 600
+    SECTION_MIN_CHUNK_TOKENS: int = 80
+    SECTION_OVERLAP_SENTENCES: int = 2
 
     # --- Retrieval ---
     TOP_K_RETRIEVAL: int = 40
@@ -97,6 +100,7 @@ class Settings(BaseSettings):
 
     # --- Security ---
     CORS_ORIGINS: List[str] = ["*"]
+    CORS_ALLOW_CREDENTIALS: bool = True
 
     # --- Validators ---
     @field_validator("SUPPORTED_EXTENSIONS", "CORS_ORIGINS", mode="before")

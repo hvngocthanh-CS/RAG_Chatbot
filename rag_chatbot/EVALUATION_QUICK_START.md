@@ -29,7 +29,7 @@ python scripts/evaluate_rag.py              # Chạy tất cả 26 câu
 
 ## Cấu hình
 
-- **Embedding:** BGE-large-en-v1.5 (1024 dim)
+- **Embedding:** BGE-base-en-v1.5 (768 dim)
 - **LLM:** Ollama llama3.2
 - **Vector DB:** ChromaDB
 - **Chunk size:** 500 tokens

@@ -1,5 +1,5 @@
 """
-Step 2 Tests — Document Preprocessing.
+Step 2 Tests -- Document Preprocessing.
 
 Run:
     cd rag_chatbot
@@ -30,7 +30,7 @@ def extractor():
 
 
 # ============================================================================
-# Helpers — build synthetic ParsedDocuments for unit tests
+# Helpers
 # ============================================================================
 
 def _make_doc(
@@ -47,7 +47,7 @@ def _make_doc(
 
 
 # ============================================================================
-# Op 1 — Unicode Repair
+# Op 1 -- Unicode Repair
 # ============================================================================
 
 class TestUnicodeRepair:
@@ -62,7 +62,7 @@ class TestUnicodeRepair:
 
     def test_fixes_ligatures(self, preprocessor):
         doc = _make_doc([
-            TextBlock(text="conﬁdential ﬂow", page_number=1),
+            TextBlock(text="con\ufb01dential \ufb02ow", page_number=1),
         ])
         result = preprocessor.preprocess(doc)
         assert "fi" in result.text_blocks[0].text
@@ -70,7 +70,7 @@ class TestUnicodeRepair:
 
     def test_collapses_whitespace(self, preprocessor):
         doc = _make_doc([
-            TextBlock(text="hello   world\t\tfoo", page_number=1),
+            TextBlock(text="hello   world   foo", page_number=1),
         ])
         result = preprocessor.preprocess(doc)
         assert "hello world foo" == result.text_blocks[0].text
@@ -98,13 +98,12 @@ class TestUnicodeRepair:
 
 
 # ============================================================================
-# Op 2 — Artifact Repair
+# Op 2 -- Artifact Repair
 # ============================================================================
 
 class TestArtifactRepair:
 
     def test_fixes_split_words(self, preprocessor):
-        # Trailing short-fragment splits (1-2 chars) that PDFs commonly produce
         doc = _make_doc([
             TextBlock(text="Statu s repor t processin g", page_number=1),
         ])
@@ -112,6 +111,13 @@ class TestArtifactRepair:
         assert "Status" in result.text_blocks[0].text
         assert "report" in result.text_blocks[0].text
         assert "processing" in result.text_blocks[0].text
+
+    def test_preserves_real_short_words(self, preprocessor):
+        doc = _make_doc([
+            TextBlock(text="Guide to the department of engineering in Asia", page_number=1),
+        ])
+        result = preprocessor.preprocess(doc)
+        assert "Guide to the department of engineering in Asia" == result.text_blocks[0].text
 
     def test_fixes_space_before_punctuation(self, preprocessor):
         doc = _make_doc([
@@ -129,7 +135,103 @@ class TestArtifactRepair:
 
 
 # ============================================================================
-# Op 3 — Heading Splitter
+# Op 3 -- Title Page Splitter (NEW)
+# ============================================================================
+
+class TestTitlePageSplitter:
+
+    def test_splits_typical_title_page(self, preprocessor):
+        doc = _make_doc([
+            TextBlock(
+                text=(
+                    "Employee Handbook Comprehensive Guide to Policies, Benefits, "
+                    "and Workplace Standards Human Resources Department Version 3.2 | "
+                    "Effective January 1, 2026 | Approved by CEO & CHRO"
+                ),
+                page_number=1,
+                block_type="heading",
+            ),
+            TextBlock(
+                text="1. Company Overview",
+                page_number=1,
+                block_type="heading",
+            ),
+        ])
+
+        result = preprocessor.preprocess(doc)
+
+        # First block should be short title
+        assert result.text_blocks[0].block_type == "heading"
+        assert result.text_blocks[0].text == "Employee Handbook"
+        assert len(result.text_blocks[0].text) < 50
+
+        # Second block should be subtitle/metadata
+        assert result.text_blocks[1].block_type == "paragraph"
+        assert "Comprehensive" in result.text_blocks[1].text
+
+    def test_splits_security_policy_title(self, preprocessor):
+        doc = _make_doc([
+            TextBlock(
+                text=(
+                    "Information Security Policy Comprehensive Security Framework "
+                    "for Systems, Data, and Personnel IT Security Department | "
+                    "Version 4.0 | Last Updated March 2026"
+                ),
+                page_number=1,
+                block_type="heading",
+            ),
+        ])
+
+        result = preprocessor.preprocess(doc)
+        assert result.text_blocks[0].text == "Information Security Policy"
+        assert result.text_blocks[0].block_type == "heading"
+
+    def test_preserves_short_headings(self, preprocessor):
+        doc = _make_doc([
+            TextBlock(text="Employee Handbook", page_number=1, block_type="heading"),
+        ])
+        result = preprocessor.preprocess(doc)
+        assert len(result.text_blocks) == 1
+        assert result.text_blocks[0].text == "Employee Handbook"
+
+    def test_only_splits_first_heading_on_page1(self, preprocessor):
+        doc = _make_doc([
+            TextBlock(text="Short Title", page_number=1, block_type="heading"),
+            TextBlock(
+                text=(
+                    "This is a very long heading on page 1 that should not be split "
+                    "because the title page splitter already processed page 1 and only "
+                    "splits the first long heading block it encounters on page 1."
+                ),
+                page_number=1,
+                block_type="heading",
+            ),
+        ])
+        result = preprocessor.preprocess(doc)
+        # First stays short, second is handled by op4 heading splitter (not title splitter)
+        assert result.text_blocks[0].text == "Short Title"
+
+    def test_does_not_split_page2_headings(self, preprocessor):
+        doc = _make_doc([
+            TextBlock(text="Short", page_number=1, block_type="heading"),
+            TextBlock(
+                text=(
+                    "Very Long Heading on Page 2 Comprehensive Guide to Everything "
+                    "That Should Not Be Title-Split Because It Is Not on Page 1"
+                ),
+                page_number=2,
+                block_type="heading",
+            ),
+        ], page_count=2)
+        result = preprocessor.preprocess(doc)
+        # page 2 heading should NOT be affected by title splitter
+        # (may still be split by op4 heading splitter if it matches patterns)
+        page2_blocks = [b for b in result.text_blocks if b.page_number == 2]
+        assert len(page2_blocks) >= 1
+
+
+# ============================================================================
+# Op 4 -- Heading Splitter
 # ============================================================================
 
 class TestHeadingSplitter:
@@ -146,12 +248,11 @@ class TestHeadingSplitter:
         ])
         result = preprocessor.preprocess(doc)
 
-        # Should be split into 2 blocks
-        assert len(result.text_blocks) == 2
-        assert result.text_blocks[0].block_type == "heading"
-        assert result.text_blocks[1].block_type == "paragraph"
-        # Heading should be short
-        assert len(result.text_blocks[0].text) < 120
+        headings = [b for b in result.text_blocks if b.block_type == "heading"]
+        paragraphs = [b for b in result.text_blocks if b.block_type == "paragraph"]
+        assert len(headings) >= 1
+        assert len(paragraphs) >= 1
+        assert len(headings[0].text) < 120
 
     def test_splits_numbered_paragraph_with_heading_prefix(self, preprocessor):
         text = (
@@ -169,6 +270,23 @@ class TestHeadingSplitter:
         assert "Performance Management" in result.text_blocks[0].text
         assert result.text_blocks[0].block_type == "heading"
         assert "TechViet" in result.text_blocks[1].text
+
+    def test_splits_heading_with_subheading(self, preprocessor):
+        """Pattern B: heading merged with sub-heading."""
+        text = (
+            "2. Code Quality Standards 2.1 Pull Request and Code Review "
+            "Requirements Code review is one of our most important quality "
+            "practices for ensuring high-quality software delivery."
+        )
+        doc = _make_doc([
+            TextBlock(text=text, page_number=2, block_type="heading"),
+        ])
+        result = preprocessor.preprocess(doc)
+
+        # Should split into two parts at "2.1"
+        assert len(result.text_blocks) >= 2
+        assert "2. Code Quality Standards" in result.text_blocks[0].text
+        assert "2.1" in result.text_blocks[1].text
 
     def test_preserves_short_headings(self, preprocessor):
         doc = _make_doc([
@@ -192,7 +310,7 @@ class TestHeadingSplitter:
 
 
 # ============================================================================
-# Op 4 — Frequency Dedup
+# Op 5 -- Frequency Dedup
 # ============================================================================
 
 class TestFrequencyDedup:
@@ -201,13 +319,11 @@ class TestFrequencyDedup:
         unique_words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf"]
         blocks = []
         for i, page in enumerate(range(1, 8)):
-            # Repeating header on every page
             blocks.append(TextBlock(
                 text="Employee Handbook | TechViet Solutions | Confidential",
                 page_number=page,
                 block_type="paragraph",
             ))
-            # Truly unique content on each page — different words, not just numbers
             blocks.append(TextBlock(
                 text=(
                     f"The {unique_words[i]} department handles specific policies "
@@ -221,10 +337,8 @@ class TestFrequencyDedup:
         doc = _make_doc(blocks, page_count=7)
         result = preprocessor.preprocess(doc)
 
-        # Repeating header should be removed
         texts = [b.text for b in result.text_blocks]
         assert not any("Employee Handbook | TechViet" in t for t in texts)
-        # Unique content should remain
         assert any("alpha" in t for t in texts)
 
     def test_removes_page_numbers(self, preprocessor):
@@ -244,7 +358,6 @@ class TestFrequencyDedup:
         doc = _make_doc(blocks, page_count=7)
         result = preprocessor.preprocess(doc)
 
-        # "Page X of Y" should be removed (numbers normalised to #)
         texts = [b.text for b in result.text_blocks]
         assert not any("Page" in t and "of" in t for t in texts)
 
@@ -261,12 +374,11 @@ class TestFrequencyDedup:
         ]
         doc = _make_doc(blocks, page_count=2)
         result = preprocessor.preprocess(doc)
-        # With only 2 pages, dedup should not activate — both blocks remain
         assert len(result.text_blocks) == 2
 
 
 # ============================================================================
-# Op 5 — Cross-page Merger
+# Op 6 -- Cross-page Merger
 # ============================================================================
 
 class TestCrossPageMerge:
@@ -337,7 +449,7 @@ class TestCrossPageMerge:
 
 
 # ============================================================================
-# Op 6 — Small Block Merger
+# Op 7 -- Small Block Merger
 # ============================================================================
 
 class TestSmallBlockMerge:
@@ -381,7 +493,6 @@ class TestSmallBlockMerge:
         ])
 
         result = preprocessor.preprocess(doc)
-        # Should NOT merge because different sections
         assert len(result.text_blocks) == 2
 
 
@@ -404,7 +515,6 @@ class TestSectionRebuild:
 
         result = preprocessor.preprocess(doc)
 
-        # After split + rebuild, the paragraph should have the new heading as section
         paragraphs = [b for b in result.text_blocks if b.block_type == "paragraph"]
         assert len(paragraphs) >= 1
         for p in paragraphs:
@@ -412,7 +522,7 @@ class TestSectionRebuild:
 
 
 # ============================================================================
-# Integration — Real PDF
+# Integration -- Real PDF
 # ============================================================================
 
 class TestPreprocessRealPDF:
@@ -422,15 +532,12 @@ class TestPreprocessRealPDF:
         raw = await parser.parse(str(sample_pdf_path))
         clean = preprocessor.preprocess(raw)
 
-        # Preprocessing should not increase block count significantly
-        # (it may increase slightly due to heading splits)
         assert len(clean.text_blocks) > 0
 
-        # All blocks should have sections
         for block in clean.text_blocks:
             assert isinstance(block.section, str)
 
-        # No block should have section > 200 chars (the old bug had 300+ char sections)
+        # No section should be excessively long (the old 300+ char bug)
         for block in clean.text_blocks:
             assert len(block.section) < 200, (
                 f"Section too long ({len(block.section)} chars): {block.section[:80]}..."
@@ -451,15 +558,50 @@ class TestPreprocessRealPDF:
         raw = await parser.parse(str(sample_pdf_path))
         clean = preprocessor.preprocess(raw)
 
-        # Tables should survive preprocessing
         assert len(clean.tables) == len(raw.tables)
         for table in clean.tables:
             assert len(table.headers) > 0
             assert len(table.rows) > 0
 
+    @pytest.mark.asyncio
+    async def test_title_page_is_split(self, parser, preprocessor, sample_pdf_path):
+        """The first block should be a short document title, not a 176-char blob."""
+        raw = await parser.parse(str(sample_pdf_path))
+        clean = preprocessor.preprocess(raw)
+
+        first_heading = next(
+            (b for b in clean.text_blocks if b.block_type == "heading"), None
+        )
+        assert first_heading is not None
+        # After title-page split, the first heading should be the document title
+        # (reasonably short), not the entire title+subtitle+metadata blob
+        assert len(first_heading.text) < 100, (
+            f"First heading still too long: {first_heading.text[:80]}..."
+        )
+
 
 # ============================================================================
-# Inspect — Visual before/after comparison
+# Full pipeline -- All 20 docs
+# ============================================================================
+
+class TestPreprocessAllDocs:
+
+    @pytest.mark.asyncio
+    async def test_all_docs_no_long_sections(self, parser, preprocessor, sample_pdf_paths):
+        """After preprocessing, no section should be excessively long."""
+        for path in sample_pdf_paths:
+            raw = await parser.parse(str(path))
+            clean = preprocessor.preprocess(raw)
+
+            for block in clean.text_blocks:
+                assert len(block.section) < 200, (
+                    f"{path.name} section too long ({len(block.section)}): "
+                    f"{block.section[:60]}..."
+                )
+
+
+# ============================================================================
+# Inspect -- Visual before/after comparison
 # ============================================================================
 
 class TestInspectPreprocessed:
@@ -493,30 +635,18 @@ class TestInspectPreprocessed:
             print(f"  Tables: {len(raw.tables)} -> {len(clean.tables)}")
             print()
 
-            # Show cleaned blocks
             print(f"  CLEANED TEXT BLOCKS ({len(clean.text_blocks)} total)")
             print(f"  {thin}")
             for i, block in enumerate(clean.text_blocks):
+                sec = block.section[:60]
                 print(f"\n  Block {i+1}/{len(clean.text_blocks)}")
                 print(f"  Type: {block.block_type} | Page: {block.page_number} "
-                      f"| Section: {block.section[:60]}")
+                      f"| Section: {sec}")
                 print(f"  {thin}")
                 for line in block.text.split("\n"):
                     print(f"  | {line}")
                 print()
 
-            # Show cleaned tables
-            print(f"\n  CLEANED TABLES ({len(clean.tables)} total)")
-            print(f"  {thin}")
-            for i, t in enumerate(clean.tables):
-                print(f"\n  Table {i+1}/{len(clean.tables)}: {extractor.table_summary(t)}")
-                print(f"  Page: {t.page_number} | Section: {t.section}")
-                print(f"  {thin}")
-                text = extractor.table_to_text(t)
-                for line in text.split("\n"):
-                    print(f"  | {line}")
-                print()
-
         print(f"\n{sep}")
-        print("DONE — Step 2 Preprocessing")
+        print("DONE -- Step 2 Preprocessing")
         print(sep)

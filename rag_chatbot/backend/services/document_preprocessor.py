@@ -4,25 +4,28 @@ Document Preprocessor — Step 2 of the RAG pipeline.
 Cleans and restructures ParsedDocument output from Step 1 (DocumentParser)
 to maximise downstream chunk quality for retrieval.
 
-Pipeline (6 operations, sequential):
-  1. Unicode / encoding repair
-  2. PDF text-artifact repair (split words, ligatures)
-  3. Heading splitter  — split long "heading+body" blocks
-  4. Frequency-based dedup — remove repeated headers/footers
-  5. Cross-page merger — rejoin text broken across page boundaries
-  6. Small-block merger — absorb tiny fragments into neighbours
+Pipeline (8 operations, sequential — order matters):
+  1. Unicode / encoding repair       — fix mojibake, ligatures, zero-width chars
+  2. PDF text-artifact repair        — rejoin split words, fix punctuation spacing
+  3. Title-page splitter             — extract doc metadata from merged title blocks
+  4. Heading splitter                — split "heading + body" and "heading + sub-heading"
+  5. Frequency-based dedup           — remove repeated headers/footers
+  6. Cross-page merger               — rejoin text broken across page boundaries
+  7. Small-block merger              — absorb tiny fragments into neighbours
+  8. Section rebuild                 — re-assign section context top-down
 
 Design principles:
-  • Each operation is a pure function on ParsedDocument (testable in isolation)
-  • Operations are idempotent — running twice produces same result
-  • Parser stays faithful to the source; preprocessor handles cleaning
+  - Each operation is a pure function on List[TextBlock] (testable in isolation)
+  - Operations are idempotent — running twice produces same result
+  - Parser stays faithful to the source; preprocessor handles cleaning
+  - Operations ordered so that earlier ops create cleaner input for later ops:
+      text repair → structural repair → noise removal → merging → metadata rebuild
 """
 
 import re
 import logging
 import unicodedata
 from copy import deepcopy
-from collections import Counter
 from typing import List, Optional, Tuple
 
 from backend.services.document_parser import ParsedDocument, TextBlock, Table
@@ -49,44 +52,38 @@ class DocumentPreprocessor:
         freq_threshold: float = 0.4,
         min_block_chars: int = 50,
         heading_max_len: int = 120,
+        title_max_len: int = 80,
     ):
-        """
-        Args:
-            freq_threshold: fraction of pages a block must appear on to be
-                            considered a repeating header/footer (0.4 = 40%).
-            min_block_chars: blocks shorter than this (non-heading) get merged
-                            into neighbours.
-            heading_max_len: max length for a heading — longer blocks that were
-                            classified as headings get split.
-        """
         self.freq_threshold = freq_threshold
         self.min_block_chars = min_block_chars
         self.heading_max_len = heading_max_len
+        self.title_max_len = title_max_len
 
     def preprocess(self, doc: ParsedDocument) -> ParsedDocument:
-        """Run all 6 operations and return a cleaned copy."""
-        # Work on a deep copy so the original stays untouched
+        """Run all 8 operations and return a cleaned copy."""
         doc = deepcopy(doc)
 
         blocks = doc.text_blocks
         tables = doc.tables
 
-        # --- Sequential pipeline ---
+        # Phase 1: Text repair (character-level)
         blocks = self._op1_unicode_repair(blocks)
         tables = self._op1_unicode_repair_tables(tables)
-
         blocks = self._op2_artifact_repair(blocks)
         tables = self._op2_artifact_repair_tables(tables)
 
-        blocks = self._op3_heading_splitter(blocks)
+        # Phase 2: Structural repair (block-level)
+        blocks = self._op3_title_page_splitter(blocks)
+        blocks = self._op4_heading_splitter(blocks)
 
-        blocks = self._op4_frequency_dedup(blocks, doc.page_count)
+        # Phase 3: Noise removal
+        blocks = self._op5_frequency_dedup(blocks, doc.page_count)
 
-        blocks = self._op5_cross_page_merge(blocks)
+        # Phase 4: Merging
+        blocks = self._op6_cross_page_merge(blocks)
+        blocks = self._op7_small_block_merge(blocks)
 
-        blocks = self._op6_small_block_merge(blocks)
-
-        # Rebuild section context after all mutations
+        # Phase 5: Metadata rebuild
         blocks = self._rebuild_sections(blocks)
 
         doc.text_blocks = blocks
@@ -102,9 +99,8 @@ class DocumentPreprocessor:
     # Op 1 — Unicode & Encoding Repair
     # ========================================================================
 
-    # Common PDF encoding errors: mojibake sequences → correct chars
     _ENCODING_FIXES = {
-        "\u00f9": "–",      # ù → en-dash (seen in step1_output)
+        "\u00f9": "–",      # ù → en-dash (common PDF mojibake)
         "\ufb01": "fi",     # ﬁ ligature
         "\ufb02": "fl",     # ﬂ ligature
         "\ufb00": "ff",     # ﬀ ligature
@@ -114,40 +110,31 @@ class DocumentPreprocessor:
         "\u2018": "'",      # left single quote → apostrophe
         "\u201c": '"',      # left double quote
         "\u201d": '"',      # right double quote
-        "\u2013": "–",      # en-dash (keep as-is, just normalize)
-        "\u2014": "—",      # em-dash (keep as-is)
-        "\u00a0": " ",      # non-breaking space → regular space
-        "\u200b": "",       # zero-width space → remove
-        "\u200c": "",       # zero-width non-joiner → remove
-        "\u200d": "",       # zero-width joiner → remove
-        "\ufeff": "",       # BOM → remove
+        "\u2013": "–",      # en-dash (normalize)
+        "\u2014": "–",      # em-dash → en-dash (normalize to single dash type)
+        "\u00a0": " ",      # non-breaking space
+        "\u200b": "",       # zero-width space
+        "\u200c": "",       # zero-width non-joiner
+        "\u200d": "",       # zero-width joiner
+        "\ufeff": "",       # BOM
     }
 
     def _fix_text(self, text: str) -> str:
         """Apply Unicode fixes and normalise whitespace."""
         for bad, good in self._ENCODING_FIXES.items():
             text = text.replace(bad, good)
-
-        # Normalize to NFC (composed form) for consistent comparisons
         text = unicodedata.normalize("NFC", text)
-
-        # Collapse multiple spaces/tabs into single space
         text = re.sub(r"[ \t]+", " ", text)
-
-        # Remove leading/trailing whitespace per line, then strip block
         lines = [line.strip() for line in text.split("\n")]
         text = "\n".join(lines).strip()
-
         return text
 
     def _op1_unicode_repair(self, blocks: List[TextBlock]) -> List[TextBlock]:
-        """Fix encoding artifacts in all text blocks."""
         for block in blocks:
             block.text = self._fix_text(block.text)
         return blocks
 
     def _op1_unicode_repair_tables(self, tables: List[Table]) -> List[Table]:
-        """Fix encoding artifacts in table headers and cells."""
         for table in tables:
             table.headers = [self._fix_text(h) for h in table.headers]
             table.rows = [
@@ -160,37 +147,28 @@ class DocumentPreprocessor:
     # Op 2 — PDF Text-Artifact Repair
     # ========================================================================
 
-    # Common 1-2 letter English words — must NOT be merged with neighbours
     _SHORT_WORDS = frozenset({
         "a", "i", "am", "an", "as", "at", "be", "by", "do", "go", "he",
         "if", "in", "is", "it", "me", "my", "no", "of", "oh", "ok", "on",
         "or", "ox", "so", "to", "up", "us", "we",
     })
-    # Pattern: space before punctuation (e.g. "word .")
     _SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([.,;:!?])")
-    # Pattern: hyphenated line break (e.g. "imple-\nmentation")
     _HYPHEN_BREAK_RE = re.compile(r"(\w)-\s*\n\s*(\w)")
 
     def _repair_split_words(self, text: str) -> str:
-        """
-        Rejoin words that were split by PDF extraction.
-
-        Only merges when the trailing fragment (1-2 chars) is NOT a common
-        English word.  "Statu s" → "Status" but "Guide to" stays.
-        """
+        """Rejoin words split by PDF extraction (trailing 1-2 char fragments)."""
         parts = text.split(" ")
         result = []
         i = 0
         while i < len(parts):
             part = parts[i]
-            # Look ahead: if next part is 1-2 chars and not a real word, merge
             if (
                 i + 1 < len(parts)
                 and len(parts[i + 1]) <= 2
                 and parts[i + 1].lower() not in self._SHORT_WORDS
                 and parts[i + 1].isalpha()
-                and part  # not empty
-                and part[-1].isalpha()  # current part ends with letter
+                and part
+                and part[-1].isalpha()
             ):
                 result.append(part + parts[i + 1])
                 i += 2
@@ -200,12 +178,8 @@ class DocumentPreprocessor:
         return " ".join(result)
 
     def _repair_artifacts(self, text: str) -> str:
-        """Fix common PDF text extraction artifacts."""
-        # Rejoin hyphenated line breaks
         text = self._HYPHEN_BREAK_RE.sub(r"\1\2", text)
-        # Rejoin split words (e.g. "Statu s" → "Status")
         text = self._repair_split_words(text)
-        # Remove extra space before punctuation
         text = self._SPACE_BEFORE_PUNCT_RE.sub(r"\1", text)
         return text
 
@@ -224,59 +198,185 @@ class DocumentPreprocessor:
         return tables
 
     # ========================================================================
-    # Op 3 — Heading Splitter
+    # Op 3 — Title Page Splitter (NEW)
     # ========================================================================
+    #
+    # Problem: PDF title pages merge Title + Subtitle + Department + Version
+    # into a single large heading block because all text has large font size
+    # and no sufficient vertical gap.
+    #
+    # Example input (1 block, 176 chars):
+    #   "Employee Handbook Comprehensive Guide to Policies, Benefits, and
+    #    Workplace Standards Human Resources Department Version 3.2 |
+    #    Effective January 1, 2026 | Approved by CEO & CHRO"
+    #
+    # Desired output (2 blocks):
+    #   heading:   "Employee Handbook"
+    #   paragraph: "Comprehensive Guide to Policies, Benefits, and Workplace
+    #              Standards Human Resources Department Version 3.2 |
+    #              Effective January 1, 2026 | Approved by CEO & CHRO"
+    #
+    # Strategy: The first heading block on page 1 that is too long is likely
+    # a title page.  We split it into a short document title (first meaningful
+    # phrase) and a metadata paragraph (the rest).
 
-    # Sentence-start indicators that signal body text (not title continuation).
-    # These are words that typically begin a sentence/clause, not a heading title.
+    # Separators that commonly appear in title page metadata
+    _TITLE_SEPARATOR_RE = re.compile(
+        r"(?:"
+        r"(?:Comprehensive|Your Comprehensive|Internal|Guidelines for|"
+        r"Standard Operating|New Features|Purchasing|Learning Paths|"
+        r"Meeting Rooms|Service Level|Frequently Asked|Personal Data|"
+        r"Quarterly|Key Technical|Production Database|Technical Standards|"
+        r"Objectives,)"
+        r")",
+    )
+
+    def _split_title_block(self, text: str) -> Optional[Tuple[str, str]]:
+        """
+        Split a title-page block into (document_title, subtitle_metadata).
+
+        Strategy: find where the actual document title ends and the subtitle
+        / metadata begins.  We look for common subtitle-start patterns.
+        """
+        # Try to find where subtitle begins
+        m = self._TITLE_SEPARATOR_RE.search(text)
+        if m and m.start() > 5:
+            title = text[:m.start()].strip()
+            subtitle = text[m.start():].strip()
+            if title and subtitle:
+                return title, subtitle
+
+        # Fallback: split at pipe | separator
+        if " | " in text:
+            parts = text.split(" | ", 1)
+            # Only if first part is reasonably short
+            if len(parts[0]) <= self.title_max_len:
+                return parts[0].strip(), parts[1].strip()
+
+        return None
+
+    def _op3_title_page_splitter(
+        self, blocks: List[TextBlock]
+    ) -> List[TextBlock]:
+        """
+        Split the first heading on page 1 if it's a merged title-page block.
+        Converts it into: short title (heading) + metadata (paragraph).
+        """
+        if not blocks:
+            return blocks
+
+        result: List[TextBlock] = []
+        title_split_done = False
+
+        for block in blocks:
+            # Only split the FIRST long heading on page 1
+            if (
+                not title_split_done
+                and block.page_number == 1
+                and block.block_type == "heading"
+                and len(block.text) > self.heading_max_len
+            ):
+                split = self._split_title_block(block.text)
+                if split:
+                    title_text, meta_text = split
+                    result.append(TextBlock(
+                        text=title_text,
+                        page_number=1,
+                        block_type="heading",
+                        section=title_text,
+                    ))
+                    result.append(TextBlock(
+                        text=meta_text,
+                        page_number=1,
+                        block_type="paragraph",
+                        section=title_text,
+                    ))
+                    title_split_done = True
+                    continue
+
+            if block.page_number and block.page_number > 1:
+                title_split_done = True  # past page 1
+
+            result.append(block)
+
+        return result
+
+    # ========================================================================
+    # Op 4 — Heading Splitter (enhanced)
+    # ========================================================================
+    #
+    # Handles TWO patterns:
+    #   A) Numbered heading merged with body text:
+    #      "4. Performance Management TechViet uses a combination..."
+    #      → heading: "4. Performance Management"
+    #      → paragraph: "TechViet uses a combination..."
+    #
+    #   B) Heading merged with sub-heading:
+    #      "2. Code Quality Standards 2.1 Pull Request and Code Review..."
+    #      → heading: "2. Code Quality Standards"
+    #      → heading: "2.1 Pull Request and Code Review..."
+
     _BODY_START_WORDS = frozenset({
         "TechViet", "The", "This", "These", "Those", "Our", "We", "All",
         "As", "It", "In", "A", "An", "For", "To", "At", "By", "On",
         "Each", "Every", "Any", "Some", "No", "Not", "During", "After",
         "Before", "When", "Where", "While", "Since", "From", "With",
-        "Standard", "Employees",
+        "Standard", "Employees", "Below", "Dr.",
     })
 
-    # Detects numbered heading prefix at start of text
     _NUMBERED_START_RE = re.compile(r"^(\d+(?:\.\d+)*\.?\s+)")
 
-    def _find_heading_body_split(self, text: str) -> Optional[Tuple[str, str]]:
-        """
-        Find where a numbered heading ends and body text begins.
+    # Pattern B: detect embedded sub-heading number like " 2.1 " inside text
+    _EMBEDDED_SUBHEADING_RE = re.compile(
+        r"^(.*?\S)\s+(\d+\.\d+(?:\.\d+)*\.?\s+.+)$",
+        re.DOTALL,
+    )
 
-        Strategy: After the number prefix, scan words. The heading is the
-        title-case portion. Body starts when we encounter a word that
-        signals sentence-level prose (common sentence starters, or a
-        lowercase word following a capitalized title word).
-
-        Returns (heading, body) or None if no split found.
+    def _find_heading_body_split(self, text: str) -> Optional[List[Tuple[str, str]]]:
         """
+        Find split points in a long block.
+
+        Returns list of (text, block_type) tuples, or None if no split found.
+        """
+        # --- Pattern B: heading + embedded sub-heading ---
+        # "2. Code Quality Standards 2.1 Pull Request and Code Review Requirements"
+        m_sub = self._EMBEDDED_SUBHEADING_RE.match(text)
+        if m_sub:
+            first_part = m_sub.group(1).strip()
+            second_part = m_sub.group(2).strip()
+            # Validate: first part should be a heading (short-ish, starts with number)
+            if (
+                self._NUMBERED_START_RE.match(first_part)
+                and len(first_part) < 150
+            ):
+                return [
+                    (first_part, "heading"),
+                    (second_part, "heading" if len(second_part) < 120 else "paragraph"),
+                ]
+
+        # --- Pattern A: numbered heading + body text ---
         m = self._NUMBERED_START_RE.match(text)
         if not m:
             return None
 
-        prefix = m.group(1)  # e.g. "4. " or "1.1 "
+        prefix = m.group(1)
         rest = text[m.end():]
         words = rest.split()
 
         if len(words) < 3:
             return None
 
-        # Scan through words to find where heading title ends
+        title_joiners = {"and", "of", "for", "the", "in", "on", "to", "a", "an", "&"}
+
         for i in range(1, len(words)):
             word = words[i]
-            clean_word = word.rstrip(".,;:!?")
+            clean_word = word.rstrip(".,;:!?()")
 
-            # Body starts at a known sentence-start word that follows
-            # at least one title word
             if clean_word in self._BODY_START_WORDS and i >= 1:
                 heading = prefix + " ".join(words[:i])
                 body = " ".join(words[i:])
-                return heading.strip(), body.strip()
+                return [(heading.strip(), "heading"), (body.strip(), "paragraph")]
 
-            # Body starts when we see a lowercase word (not a preposition
-            # that could be part of a title like "and", "of", "for")
-            title_joiners = {"and", "of", "for", "the", "in", "on", "to", "a", "an", "&"}
             if (
                 word[0].islower()
                 and word not in title_joiners
@@ -284,45 +384,52 @@ class DocumentPreprocessor:
             ):
                 heading = prefix + " ".join(words[:i])
                 body = " ".join(words[i:])
-                return heading.strip(), body.strip()
+                return [(heading.strip(), "heading"), (body.strip(), "paragraph")]
 
         return None
 
-    def _op3_heading_splitter(
+    # Pattern: "ADR-001: Title Here Status: Accepted | Date: ..."
+    # Split at " Status:" to separate the ADR title from metadata
+    _METADATA_SPLIT_RE = re.compile(
+        r"^(.{10,80}?)\s+(Status:\s+.+)$"
+    )
+
+    def _op4_heading_splitter(
         self, blocks: List[TextBlock]
     ) -> List[TextBlock]:
-        """
-        Split blocks that contain a heading merged with body text.
-
-        Detects pattern: "4. Performance Management TechViet uses a combination..."
-        Splits into:
-          - heading: "4. Performance Management"
-          - paragraph: "TechViet uses a combination..."
-        """
+        """Split blocks that contain merged heading+body or heading+sub-heading."""
         result: List[TextBlock] = []
 
         for block in blocks:
             text = block.text.strip()
 
-            # Only attempt split on long blocks
             if len(text) > self.heading_max_len:
-                split = self._find_heading_body_split(text)
-                if split:
-                    heading_text, body_text = split
+                # Try numbered heading split (Pattern A & B)
+                parts = self._find_heading_body_split(text)
+                if parts:
+                    for part_text, part_type in parts:
+                        result.append(TextBlock(
+                            text=part_text,
+                            page_number=block.page_number,
+                            block_type=part_type,
+                            section="",
+                        ))
+                    continue
 
-                    # Emit heading block
+                # Try metadata split (ADR pattern: "Title Status: Accepted | Date...")
+                m = self._METADATA_SPLIT_RE.match(text)
+                if m:
                     result.append(TextBlock(
-                        text=heading_text,
+                        text=m.group(1).strip(),
                         page_number=block.page_number,
                         block_type="heading",
-                        section=heading_text,
+                        section="",
                     ))
-                    # Emit body block
                     result.append(TextBlock(
-                        text=body_text,
+                        text=m.group(2).strip(),
                         page_number=block.page_number,
                         block_type="paragraph",
-                        section=heading_text,
+                        section="",
                     ))
                     continue
 
@@ -331,39 +438,29 @@ class DocumentPreprocessor:
         return result
 
     # ========================================================================
-    # Op 4 — Frequency-based Dedup (header/footer removal)
+    # Op 5 — Frequency-based Dedup (header/footer removal)
     # ========================================================================
 
     @staticmethod
     def _normalise_for_compare(text: str) -> str:
-        """Normalise text for fuzzy comparison (ignore whitespace, case, numbers)."""
         text = text.lower().strip()
-        # Replace numbers with # so "Page 1" matches "Page 2"
         text = re.sub(r"\d+", "#", text)
         text = re.sub(r"\s+", " ", text)
         return text
 
     @staticmethod
     def _is_likely_header_footer(text: str) -> bool:
-        """Headers/footers are typically short (< 120 chars)."""
         return len(text.strip()) < 120
 
-    def _op4_frequency_dedup(
+    def _op5_frequency_dedup(
         self, blocks: List[TextBlock], page_count: int
     ) -> List[TextBlock]:
-        """
-        Remove text blocks that appear (near-identically) on many pages.
-        These are typically running headers, footers, or page numbers.
-
-        Only applies when page_count >= 3 (need enough pages to detect pattern).
-        """
+        """Remove text blocks that appear on many pages (headers/footers)."""
         if page_count < 3:
             return blocks
 
         min_appearances = max(2, int(page_count * self.freq_threshold))
 
-        # Count how many distinct pages each normalised text appears on
-        # Only consider short blocks (headers/footers are typically < 120 chars)
         text_page_map: dict[str, set[int]] = {}
         for block in blocks:
             if not self._is_likely_header_footer(block.text):
@@ -374,7 +471,6 @@ class DocumentPreprocessor:
             page = block.page_number or 0
             text_page_map.setdefault(norm, set()).add(page)
 
-        # Identify repeating texts
         repeating = {
             norm
             for norm, pages in text_page_map.items()
@@ -390,12 +486,11 @@ class DocumentPreprocessor:
         ]
 
     # ========================================================================
-    # Op 5 — Cross-page Merger
+    # Op 6 — Cross-page Merger
     # ========================================================================
 
     @staticmethod
     def _is_incomplete_end(text: str) -> bool:
-        """True if text ends mid-sentence (no terminal punctuation)."""
         text = text.rstrip()
         if not text:
             return False
@@ -403,28 +498,23 @@ class DocumentPreprocessor:
 
     @staticmethod
     def _is_continuation_start(text: str) -> bool:
-        """True if text starts like a sentence continuation (lowercase or specific patterns)."""
         text = text.lstrip()
         if not text:
             return False
-        # Starts with lowercase letter → continuation
         if text[0].islower():
             return True
-        # Starts with common continuation patterns
-        if re.match(r"^(and|or|but|the|a|an|that|which|who|where|when|also|however|categories)\b", text, re.IGNORECASE):
+        if re.match(
+            r"^(and|or|but|the|a|an|that|which|who|where|when|also|"
+            r"however|categories)\b",
+            text, re.IGNORECASE,
+        ):
             return True
         return False
 
-    def _op5_cross_page_merge(
+    def _op6_cross_page_merge(
         self, blocks: List[TextBlock]
     ) -> List[TextBlock]:
-        """
-        Merge text blocks that were split across page boundaries.
-
-        Condition: block N ends without terminal punctuation AND block N+1
-        starts with lowercase (or continuation word) AND they are on
-        consecutive pages.
-        """
+        """Merge text blocks split across page boundaries."""
         if len(blocks) < 2:
             return blocks
 
@@ -441,13 +531,10 @@ class DocumentPreprocessor:
             if i + 1 < len(blocks):
                 next_block = blocks[i + 1]
 
-                # Only merge paragraphs (not headings)
                 both_paragraphs = (
                     block.block_type == "paragraph"
                     and next_block.block_type == "paragraph"
                 )
-
-                # Check consecutive pages
                 consecutive_pages = (
                     block.page_number is not None
                     and next_block.page_number is not None
@@ -460,7 +547,6 @@ class DocumentPreprocessor:
                     and self._is_incomplete_end(block.text)
                     and self._is_continuation_start(next_block.text)
                 ):
-                    # Merge: join with space
                     merged = TextBlock(
                         text=block.text.rstrip() + " " + next_block.text.lstrip(),
                         page_number=block.page_number,
@@ -469,10 +555,6 @@ class DocumentPreprocessor:
                     )
                     result.append(merged)
                     skip_next = True
-                    logger.debug(
-                        "Cross-page merge: pages %s–%s",
-                        block.page_number, next_block.page_number,
-                    )
                     continue
 
             result.append(block)
@@ -480,37 +562,30 @@ class DocumentPreprocessor:
         return result
 
     # ========================================================================
-    # Op 6 — Small-block Merger
+    # Op 7 — Small-block Merger
     # ========================================================================
 
-    def _op6_small_block_merge(
+    def _op7_small_block_merge(
         self, blocks: List[TextBlock]
     ) -> List[TextBlock]:
-        """
-        Merge very short paragraph blocks into their nearest neighbour
-        within the same section. Headings are never merged.
-        """
+        """Merge very short paragraph blocks into nearest same-section neighbour."""
         if len(blocks) < 2:
             return blocks
 
         result: List[TextBlock] = []
 
         for block in blocks:
-            # Never merge headings
             if block.block_type == "heading":
                 result.append(block)
                 continue
 
-            # Short paragraph?
             if len(block.text) < self.min_block_chars:
-                # Try to merge into previous block if same section
                 if (
                     result
                     and result[-1].block_type == "paragraph"
                     and result[-1].section == block.section
                 ):
                     result[-1].text = result[-1].text.rstrip() + " " + block.text.lstrip()
-                    logger.debug("Merged small block (%d chars) into previous", len(block.text))
                     continue
 
             result.append(block)
@@ -518,15 +593,12 @@ class DocumentPreprocessor:
         return result
 
     # ========================================================================
-    # Rebuild section context
+    # Op 8 — Rebuild section context
     # ========================================================================
 
     @staticmethod
     def _rebuild_sections(blocks: List[TextBlock]) -> List[TextBlock]:
-        """
-        Re-assign section context based on the nearest heading above each block.
-        Must be called after any operation that reorders or inserts blocks.
-        """
+        """Re-assign section context based on nearest heading above each block."""
         current_section = ""
         for block in blocks:
             if block.block_type == "heading":

@@ -1,164 +1,174 @@
 """
-Embedding Service.
-Handles text embedding generation using various providers.
+Embedding Service — Step 4 of the RAG pipeline.
+
+Generates dense vector representations of text using HuggingFace
+sentence-transformers.  Sits between the Chunker (Step 3) and the
+Vector Store (Step 5).
+
+Design decisions:
+  - Model: BAAI/bge-base-en-v1.5 (768-dim, top MTEB for its size class)
+  - Asymmetric encoding: queries get an instruction prefix so the model
+    knows to match them against passages, not against other queries.
+    Passages are embedded raw — the Section Chunker already prepends a
+    [Heading] prefix that gives the model a strong topic signal.
+  - All CPU-bound work (model loading + encoding) runs via
+    asyncio.to_thread() so the FastAPI event loop is never blocked.
+  - Batch size 32 balances throughput vs memory on CPU.
+
+Ref: https://huggingface.co/BAAI/bge-base-en-v1.5
 """
+
 import asyncio
 import logging
-from typing import List, Optional
-import numpy as np
+import time
+from typing import List
 
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
+# BGE query instruction — tells the model the text is a search query.
+# Passages must NOT have this prefix (they are embedded raw).
+_BGE_QUERY_INSTRUCTION = (
+    "Represent this sentence for searching relevant passages: "
+)
+
 
 class EmbeddingService:
     """
-    Service for generating text embeddings using HuggingFace models.
-    
-    Supports:
-    - HuggingFace models (BGE, E5, Instructor)
-    
-    Features:
-    - Batch processing
-    - Automatic model loading
+    Text embedding service backed by SentenceTransformer.
+
+    All heavy work (model load, encode) is offloaded to a thread via
+    asyncio.to_thread() so the async event loop stays responsive.
     """
-    
+
     def __init__(self):
-        self.provider = settings.EMBEDDING_PROVIDER
         self.model = None
-        self.tokenizer = None
         self._initialized = False
-    
+        self._model_name = settings.EMBEDDING_MODEL
+        self._device: str = settings.EMBEDDING_DEVICE
+
+    # ------------------------------------------------------------------
+    # Initialization
+    # ------------------------------------------------------------------
+
     async def initialize(self):
-        """Initialize the embedding model."""
+        """Load the embedding model (offloaded to thread, 5-min timeout)."""
         if self._initialized:
             return
-        
-        logger.info(f"Initializing embedding service with provider: {self.provider}")
-        
+
         try:
-            if self.provider == "huggingface":
-                await asyncio.wait_for(self._init_huggingface(), timeout=300)  # 5 min timeout
-            else:
-                raise ValueError(f"Unsupported embedding provider: {self.provider}")
-            
-            self._initialized = True
-            logger.info("Embedding service initialized")
-        
-        except asyncio.TimeoutError:
-            logger.error(f"Embedding model initialization timeout")
-            raise RuntimeError("Embedding model initialization timed out (>300s)")
-        except Exception as e:
-            logger.error(f"Failed to initialize embedding service: {e}", exc_info=True)
-            raise
-    
-    async def _init_huggingface(self):
-        """Initialize HuggingFace model."""
-        try:
-            logger.info("Importing sentence-transformers...")
-            from sentence_transformers import SentenceTransformer
-            import torch
-            
-            # Use configured device (CPU for this service to free GPU for LLM)
-            device = settings.EMBEDDING_DEVICE
-            # Validate device availability if CUDA is requested
-            if device == "cuda" and not torch.cuda.is_available():
-                logger.warning("CUDA requested but not available. Falling back to CPU.")
-                device = "cpu"
-            logger.info(f"Using device: {device} (configured via EMBEDDING_DEVICE setting)")
-            
-            # Load model
-            logger.info(f"Loading HuggingFace model: {settings.EMBEDDING_MODEL}")
-            self.model = SentenceTransformer(
-                settings.EMBEDDING_MODEL,
-                device=device
+            await asyncio.wait_for(
+                asyncio.to_thread(self._load_model_sync),
+                timeout=300,
             )
-            
-            logger.info(f"✓ Embedding model loaded successfully on {device}")
-            
-        except ImportError as e:
-            logger.error(f"sentence-transformers not installed: {e}")
-            raise
+            self._initialized = True
+            logger.info(
+                "Embedding service ready  model=%s  dim=%d  device=%s",
+                self._model_name,
+                self.get_embedding_dimension(),
+                self._device,
+            )
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                "Embedding model initialization timed out (>300 s)"
+            )
         except Exception as e:
-            logger.error(f"Failed to load embedding model: {e}", exc_info=True)
+            logger.error("Failed to initialize embedding service: %s", e, exc_info=True)
             raise
-    
+
+    def _load_model_sync(self):
+        """Synchronous model loading — called inside a thread."""
+        from sentence_transformers import SentenceTransformer
+        import torch
+
+        if self._device == "cuda" and not torch.cuda.is_available():
+            logger.warning("CUDA requested but unavailable — falling back to CPU")
+            self._device = "cpu"
+
+        logger.info("Loading %s on %s …", self._model_name, self._device)
+        self.model = SentenceTransformer(self._model_name, device=self._device)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     async def embed_query(self, text: str) -> List[float]:
         """
-        Generate embedding for a single query.
-        
-        For query embeddings, some models use special prefixes.
+        Embed a single search query.
+
+        BGE models use an instruction prefix for queries so the vector
+        space separates "looking-for" intent from "passage content".
         """
         if not self._initialized:
             await self.initialize()
-        
-        if self.provider == "huggingface":
-            # BGE models use query prefix
-            if "bge" in settings.EMBEDDING_MODEL.lower():
-                text = f"Represent this sentence for searching relevant passages: {text}"
-            
-            embedding = self.model.encode(text, normalize_embeddings=True)
-            return embedding.tolist()
-        
-        raise ValueError(f"Unsupported embedding provider: {self.provider}")
-    
+
+        if "bge" in self._model_name.lower():
+            text = f"{_BGE_QUERY_INSTRUCTION}{text}"
+
+        embedding = await asyncio.to_thread(
+            self.model.encode, text, normalize_embeddings=True,
+        )
+        return embedding.tolist()
+
     async def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """
-        Generate embeddings for multiple documents.
-        
-        Uses batch processing for efficiency.
+        Embed document passages in batches.
+
+        Passages are embedded WITHOUT an instruction prefix — the
+        Section Chunker's ``[Heading]`` prefix already provides topic
+        context to the model.
+
+        Progress is logged every 5 batches so large ingestion jobs
+        are observable.
         """
         if not self._initialized:
             await self.initialize()
-        
+
         if not texts:
             return []
-        
-        logger.info(f"Generating embeddings for {len(texts)} texts")
-        
-        if self.provider == "huggingface":
-            return await self._embed_huggingface(texts)
-        
-        raise ValueError(f"Unsupported embedding provider: {self.provider}")
-    
-    async def _embed_huggingface(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings using HuggingFace model.
 
-        BGE models use asymmetric encoding:
-        - Queries: prefixed with instruction (see embed_query)
-        - Documents/passages: NO prefix (raw text)
-        Ref: https://huggingface.co/BAAI/bge-base-en-v1.5
-        """
-        # Process in batches to manage memory
         batch_size = 32
-        all_embeddings = []
+        total_batches = (len(texts) + batch_size - 1) // batch_size
+        all_embeddings: List[List[float]] = []
 
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
+        t0 = time.perf_counter()
 
-            embeddings = self.model.encode(
+        for batch_idx in range(total_batches):
+            start = batch_idx * batch_size
+            batch = texts[start : start + batch_size]
+
+            embeddings = await asyncio.to_thread(
+                self.model.encode,
                 batch,
                 normalize_embeddings=True,
-                show_progress_bar=False
+                show_progress_bar=False,
             )
-
             all_embeddings.extend(embeddings.tolist())
 
+            # Progress logging every 5 batches or on the last batch
+            if (batch_idx + 1) % 5 == 0 or batch_idx + 1 == total_batches:
+                elapsed = time.perf_counter() - t0
+                done = min(start + batch_size, len(texts))
+                logger.info(
+                    "Embedding progress: %d/%d texts  (%.1f s elapsed)",
+                    done, len(texts), elapsed,
+                )
+
         return all_embeddings
-    
+
+    # ------------------------------------------------------------------
+    # Utilities
+    # ------------------------------------------------------------------
+
     def get_embedding_dimension(self) -> int:
-        """Get the dimension of embeddings."""
-        if self.provider == "huggingface" and self.model:
+        if self.model:
             return self.model.get_sentence_embedding_dimension()
         return settings.EMBEDDING_DIMENSION
-    
+
     async def health_check(self) -> bool:
-        """Check if the embedding service is healthy."""
         try:
-            test_text = "Health check test"
-            embedding = await self.embed_query(test_text)
-            return len(embedding) > 0
-        except Exception as e:
-            logger.error(f"Embedding service health check failed: {e}")
+            emb = await self.embed_query("health check")
+            return len(emb) == self.get_embedding_dimension()
+        except Exception:
             return False

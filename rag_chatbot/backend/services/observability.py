@@ -144,7 +144,6 @@ def setup_logging():
     # Reduce noise from third-party libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("chromadb").setLevel(logging.WARNING)
     
     logging.info("Logging configured", extra={"format": settings.LOG_FORMAT})
 
