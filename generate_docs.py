@@ -1923,6 +1923,967 @@ def doc_meeting_minutes():
 
 
 # ============================================================
+# 13. API & Microservices Documentation
+# ============================================================
+def doc_api_documentation():
+    s = title_page(
+        "API & Microservices Documentation",
+        "Internal Platform API Reference Guide",
+        "Platform Engineering Team | Version 4.1",
+        "Last Updated: March 2026 | Classification: Internal"
+    )
+
+    s.append(Paragraph("1. API Gateway Overview", styles['SectionHead']))
+    s.append(Paragraph(
+        "TechViet's API infrastructure is managed through Kong API Gateway deployed on EKS. "
+        "All internal and external APIs are registered through the API catalog at api.techviet.vn. "
+        "The gateway handles authentication, rate limiting, request routing, and observability. "
+        "As of March 2026, the platform serves 47 registered APIs across 12 microservices with an "
+        "average daily throughput of 2.8 million requests. All APIs follow RESTful conventions "
+        "documented in ADR-004 and are versioned using URL path prefixes (e.g., /api/v2/).",
+        styles['Body']
+    ))
+
+    s.append(Paragraph("1.1 Base URLs by Environment", styles['SubHead']))
+    s.append(make_table(
+        ["Environment", "Base URL", "Auth Method", "Rate Limit", "Purpose"],
+        [
+            ["Development", "https://api-dev.techviet.internal", "API Key", "1000 req/min", "Developer testing, no production data"],
+            ["Staging", "https://api-staging.techviet.internal", "OAuth2 + API Key", "500 req/min", "Pre-release integration testing"],
+            ["UAT", "https://api-uat.techviet.internal", "OAuth2 JWT", "200 req/min", "Client acceptance testing"],
+            ["Production", "https://api.techviet.vn", "OAuth2 JWT + mTLS", "100 req/min per client", "Live production traffic"],
+        ],
+        [70, 140, 85, 75, USABLE_W - 370]
+    ))
+
+    s.append(Paragraph("2. User Service API (user-service v3.2)", styles['SectionHead']))
+    s.append(Paragraph(
+        "The User Service manages employee profiles, authentication tokens, and role-based access "
+        "control (RBAC). It serves as the identity provider for all internal applications. "
+        "Deployed on 3 pods in EKS with PostgreSQL 15 backend and Redis 7 session cache. "
+        "Maintainer: Le Hoang Nam (le.nam@techviet.vn). On-call rotation: #team-platform in Slack.",
+        styles['Body']
+    ))
+
+    s.append(Paragraph("2.1 Endpoints", styles['SubHead']))
+    s.append(make_table(
+        ["Method", "Endpoint", "Description", "Auth Required", "Rate Limit"],
+        [
+            ["GET", "/api/v3/users/{user_id}", "Retrieve user profile by ID. Returns full profile including department, role, and contact info.", "Bearer Token", "100/min"],
+            ["GET", "/api/v3/users?department={dept}&role={role}", "Search users with filters. Supports pagination via cursor parameter. Max 50 results per page.", "Bearer Token", "50/min"],
+            ["POST", "/api/v3/users", "Create new user account. Requires admin role. Triggers onboarding workflow via Kafka event.", "Admin Token", "10/min"],
+            ["PUT", "/api/v3/users/{user_id}", "Update user profile fields. Partial updates supported. Emits user.updated event.", "Bearer Token (self) or Admin", "30/min"],
+            ["DELETE", "/api/v3/users/{user_id}", "Soft-delete user account. Sets status to 'deactivated'. Revokes all active sessions.", "Admin Token", "5/min"],
+            ["POST", "/api/v3/auth/login", "Authenticate with email/password. Returns JWT access token (15min) and refresh token (7d).", "None", "20/min"],
+            ["POST", "/api/v3/auth/refresh", "Exchange refresh token for new access token. Old refresh token is invalidated.", "Refresh Token", "30/min"],
+            ["GET", "/api/v3/users/{user_id}/permissions", "List all permissions and roles for a user. Includes inherited permissions from groups.", "Bearer Token", "50/min"],
+        ],
+        [35, 120, USABLE_W - 310, 75, 45]
+    ))
+
+    s.append(Paragraph("2.2 Response Codes", styles['SubHead']))
+    s.append(make_table(
+        ["Code", "Meaning", "When Returned", "Retry?"],
+        [
+            ["200", "OK", "Successful GET/PUT request", "N/A"],
+            ["201", "Created", "Successful POST that created a resource", "N/A"],
+            ["400", "Bad Request", "Invalid request body or missing required fields", "No — fix request"],
+            ["401", "Unauthorized", "Missing or expired authentication token", "Yes — refresh token"],
+            ["403", "Forbidden", "Valid token but insufficient permissions for the resource", "No — request access"],
+            ["404", "Not Found", "Resource does not exist or has been soft-deleted", "No"],
+            ["409", "Conflict", "Email already registered or duplicate resource creation", "No — use existing"],
+            ["429", "Too Many Requests", "Rate limit exceeded. Retry-After header indicates wait time.", "Yes — after Retry-After"],
+            ["500", "Internal Server Error", "Unexpected server error. Incident auto-created if 5xx rate > 1%.", "Yes — with exponential backoff"],
+        ],
+        [35, 70, USABLE_W - 185, 80]
+    ))
+
+    s.append(Paragraph("3. Project Service API (project-service v2.5)", styles['SectionHead']))
+    s.append(Paragraph(
+        "Manages project portfolios, task tracking, and resource allocation. Integrates with Jira "
+        "via bidirectional sync. PostgreSQL backend with full-text search via pg_trgm extension. "
+        "Maintainer: Nguyen Quoc Bao (nguyen.bao@techviet.vn).",
+        styles['Body']
+    ))
+
+    s.append(Paragraph("3.1 Endpoints", styles['SubHead']))
+    s.append(make_table(
+        ["Method", "Endpoint", "Description", "Auth", "Rate Limit"],
+        [
+            ["GET", "/api/v2/projects", "List all projects. Filterable by status (active/completed/on-hold), client_id, and date range. Returns summary with health indicators.", "Bearer", "50/min"],
+            ["GET", "/api/v2/projects/{project_id}", "Get full project details including team members, milestones, budget utilization, and risk log.", "Bearer", "100/min"],
+            ["GET", "/api/v2/projects/{project_id}/tasks", "List tasks for a project. Filterable by assignee, status, priority. Supports cursor pagination.", "Bearer", "100/min"],
+            ["POST", "/api/v2/projects/{project_id}/tasks", "Create task within project. Auto-syncs to linked Jira board within 30 seconds.", "Bearer + Project Member", "30/min"],
+            ["GET", "/api/v2/projects/{project_id}/timeline", "Get Gantt chart data with milestones, dependencies, and critical path analysis.", "Bearer", "20/min"],
+            ["GET", "/api/v2/projects/{project_id}/budget", "Budget breakdown: allocated vs spent vs forecasted. Includes burn rate and EAC.", "Bearer + PM Role", "20/min"],
+        ],
+        [35, 120, USABLE_W - 290, 65, 45]
+    ))
+
+    s.append(Paragraph("4. Document Service API (doc-service v1.8)", styles['SectionHead']))
+    s.append(Paragraph(
+        "Handles document storage, versioning, and full-text search. Uses MinIO (S3-compatible) "
+        "for blob storage and Elasticsearch 8.x for search indexing. Supports PDF, DOCX, XLSX, "
+        "PPTX, MD, and TXT formats up to 50MB per file. Documents are automatically virus-scanned "
+        "via ClamAV before storage. Maintainer: Platform Team.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Method", "Endpoint", "Description", "Auth", "Max Size"],
+        [
+            ["POST", "/api/v1/documents/upload", "Upload document with metadata. Returns document_id and triggers async indexing pipeline.", "Bearer", "50 MB"],
+            ["GET", "/api/v1/documents/{doc_id}", "Download document. Returns binary stream with Content-Disposition header.", "Bearer", "N/A"],
+            ["GET", "/api/v1/documents/{doc_id}/metadata", "Get document metadata: filename, size, upload date, uploader, version, tags.", "Bearer", "N/A"],
+            ["GET", "/api/v1/documents/search?q={query}", "Full-text search across all documents. Returns highlighted snippets with relevance scores.", "Bearer", "N/A"],
+            ["DELETE", "/api/v1/documents/{doc_id}", "Soft-delete document. Removed from search index. Physical deletion after 90-day retention.", "Admin", "N/A"],
+        ],
+        [35, 120, USABLE_W - 270, 40, 40]
+    ))
+
+    s.append(Paragraph("5. Notification Service API (notify-service v2.1)", styles['SectionHead']))
+    s.append(Paragraph(
+        "Centralized notification system supporting email (via SendGrid), Slack (webhooks), "
+        "push notifications (Firebase), and in-app notifications. Supports templated messages, "
+        "batch sending, and delivery tracking. Processes approximately 15,000 notifications daily.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Method", "Endpoint", "Description"],
+        [
+            ["POST", "/api/v2/notifications/send", "Send notification. Requires channel (email/slack/push/in-app), recipient_id, template_id, and variables."],
+            ["GET", "/api/v2/notifications/user/{user_id}", "Get notification history for user. Filterable by channel, read/unread status, date range."],
+            ["PUT", "/api/v2/notifications/{notif_id}/read", "Mark notification as read. Batch endpoint: PUT /api/v2/notifications/read with array of IDs."],
+            ["GET", "/api/v2/notifications/templates", "List available notification templates. Each template has variables, channels, and sample output."],
+        ],
+        [35, 140, USABLE_W - 175]
+    ))
+
+    s.append(Paragraph("6. Common Integration Patterns", styles['SectionHead']))
+    s.append(Paragraph(
+        "All services communicate via Kafka for asynchronous events and gRPC for synchronous calls. "
+        "Event schema registry is managed via Confluent Schema Registry at schema.techviet.internal. "
+        "All events follow CloudEvents v1.0 specification.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Event Name", "Producer", "Consumers", "Payload Summary"],
+        [
+            ["user.created", "user-service", "onboarding-service, notification-service, audit-log", "user_id, email, department, role, created_at"],
+            ["user.updated", "user-service", "search-service, audit-log", "user_id, changed_fields, updated_by"],
+            ["project.status_changed", "project-service", "notification-service, reporting-service", "project_id, old_status, new_status, changed_by"],
+            ["document.indexed", "doc-service", "search-service, chatassist-service", "doc_id, filename, chunk_count, index_duration_ms"],
+            ["incident.created", "incident-service", "pagerduty-bridge, notification-service, slack-bot", "incident_id, severity, title, assigned_team"],
+        ],
+        [90, 75, USABLE_W - 305, 140]
+    ))
+
+    build_pdf("13_API_Documentation.pdf", s)
+
+
+# ============================================================
+# 14. Operations Runbook — Deployment & Incident SOP
+# ============================================================
+def doc_operations_runbook():
+    s = title_page(
+        "Operations Runbook",
+        "Standard Operating Procedures for Deployment, Incidents & Recovery",
+        "DevOps & SRE Team | Version 2.3",
+        "Last Updated: February 2026 | Classification: Internal"
+    )
+
+    s.append(Paragraph("1. Deployment Standard Operating Procedure", styles['SectionHead']))
+    s.append(Paragraph(
+        "All production deployments follow the Blue-Green deployment model orchestrated via "
+        "GitHub Actions and ArgoCD. Deployments are only permitted during the deployment window: "
+        "Monday through Thursday, 10:00 AM – 4:00 PM ICT. Friday deployments require VP Engineering "
+        "approval. No deployments are allowed during code freeze periods or within 48 hours of "
+        "a major client demo.",
+        styles['Body']
+    ))
+
+    s.append(Paragraph("1.1 Pre-Deployment Checklist", styles['SubHead']))
+    s.append(make_table(
+        ["Step", "Action", "Responsible", "Tool/Command", "Pass Criteria"],
+        [
+            ["1", "All PRs merged and approved (min 2 reviewers)", "Tech Lead", "GitHub — check PR status", "0 open PRs targeting release branch"],
+            ["2", "All CI checks passing (unit, integration, SAST, DAST)", "CI/CD Pipeline", "GitHub Actions", "All checks green, 0 failures"],
+            ["3", "Staging environment tested and signed off", "QA Lead", "TestRail — test run report", "100% P1/P2 tests pass, <2% P3 failures"],
+            ["4", "Database migration reviewed by DBA", "DBA (Tran Duc)", "pg_dump diff + review", "No destructive changes without backup plan"],
+            ["5", "Release notes published to #releases channel", "PM / Tech Lead", "Slack + Confluence", "All stakeholders notified"],
+            ["6", "Rollback plan documented and tested in staging", "DevOps", "ArgoCD rollback dry-run", "Rollback completes in <5 minutes"],
+            ["7", "Monitoring dashboards reviewed (baseline metrics)", "SRE", "Datadog — service dashboard", "Error rate <0.1%, latency p99 <500ms"],
+            ["8", "Change request approved in ServiceNow", "Release Manager", "ServiceNow CR ticket", "CAB approval or emergency approval"],
+        ],
+        [25, USABLE_W - 305, 70, 100, 110]
+    ))
+
+    s.append(Paragraph("1.2 Deployment Execution Steps", styles['SubHead']))
+    s.append(make_table(
+        ["Step", "Action", "Command / Procedure", "Expected Duration", "Rollback Trigger"],
+        [
+            ["1", "Enable maintenance page (if needed)", "kubectl apply -f maintenance.yaml", "30 seconds", "N/A"],
+            ["2", "Deploy to blue environment", "argocd app sync <app> --revision <tag>", "3-5 minutes", "Image pull failure or CrashLoopBackOff"],
+            ["3", "Run smoke tests against blue", "pytest tests/smoke/ --env=blue", "2 minutes", "Any smoke test failure"],
+            ["4", "Gradual traffic shift: 10% -> 25% -> 50% -> 100%", "istio traffic-split update", "15 minutes total (5min per stage)", "Error rate >1% or p99 >2s at any stage"],
+            ["5", "Monitor for 30 minutes (bake time)", "Datadog real-time dashboard", "30 minutes", "Error rate >0.5% or customer-reported issue"],
+            ["6", "Mark green environment for decommission", "argocd app delete <old-green>", "1 minute", "N/A"],
+            ["7", "Close change request in ServiceNow", "Update CR status to Completed", "1 minute", "N/A"],
+        ],
+        [25, USABLE_W - 330, 120, 65, 120]
+    ))
+
+    s.append(Paragraph("1.3 Rollback Procedure", styles['SubHead']))
+    s.append(Paragraph(
+        "If rollback is triggered at any stage, execute these steps immediately:",
+        styles['Body']
+    ))
+    s.append(make_table(
+        ["Step", "Action", "Command", "Expected Duration"],
+        [
+            ["1", "Shift 100% traffic back to green (old version)", "istio traffic-split rollback", "30 seconds"],
+            ["2", "Verify green environment is healthy", "curl -s https://api.techviet.vn/health | jq .status", "10 seconds"],
+            ["3", "Delete blue (failed) deployment", "argocd app delete <blue>", "1 minute"],
+            ["4", "Notify #incidents channel with rollback reason", "Slack — /incident rollback-report", "2 minutes"],
+            ["5", "Create post-deployment failure ticket in Jira", "Jira — type: Bug, priority: P1", "5 minutes"],
+            ["6", "Schedule post-mortem within 48 hours", "Google Calendar — invite release team", "5 minutes"],
+        ],
+        [25, USABLE_W - 250, 140, 60]
+    ))
+
+    s.append(Paragraph("2. Incident Response Procedure", styles['SectionHead']))
+    s.append(Paragraph(
+        "TechViet follows a structured incident response framework based on PagerDuty's incident "
+        "management best practices. All incidents are tracked in ServiceNow with Slack as the "
+        "primary communication channel. The on-call rotation covers 24/7 with primary and secondary "
+        "responders from each team.",
+        styles['Body']
+    ))
+
+    s.append(Paragraph("2.1 Severity Classification", styles['SubHead']))
+    s.append(make_table(
+        ["Severity", "Definition", "Response Time", "Update Frequency", "Escalation", "Example"],
+        [
+            ["P1 — Critical", "Complete service outage affecting all users or data loss/breach", "15 minutes", "Every 30 minutes", "VP Eng + CTO within 30min", "Production database down, API gateway unreachable, data breach detected"],
+            ["P2 — High", "Major feature degraded, affecting >30% of users or revenue impact", "30 minutes", "Every 1 hour", "Engineering Manager within 1hr", "Payment processing failing, search returning no results, auth service degraded"],
+            ["P3 — Medium", "Minor feature issue, workaround available, <10% of users affected", "4 hours", "Every 4 hours (business)", "Team Lead next business day", "PDF export broken, Slack integration delayed, dashboard showing stale data"],
+            ["P4 — Low", "Cosmetic issue, minor bug, no user impact", "Next business day", "Weekly status", "Sprint backlog", "Typo in email template, UI alignment issue, non-critical log warning"],
+        ],
+        [60, 100, 55, 65, 80, USABLE_W - 360]
+    ))
+
+    s.append(Paragraph("2.2 On-Call Escalation Path", styles['SubHead']))
+    s.append(make_table(
+        ["Time Elapsed", "Action", "Who", "Contact Method"],
+        [
+            ["0 min", "Alert fires — Primary on-call receives PagerDuty notification", "Primary On-Call Engineer", "PagerDuty push + SMS + phone"],
+            ["5 min", "If no acknowledgment — auto-escalate to secondary", "Secondary On-Call Engineer", "PagerDuty push + phone call"],
+            ["15 min", "If P1 — Incident Commander declared, war room opened", "Engineering Manager (IC)", "Slack #incident-{id} channel created"],
+            ["30 min", "If P1 unresolved — escalate to VP Engineering", "VP Engineering (Le Van Hung)", "Phone: +84-xxx-xxx-001"],
+            ["1 hour", "If P1 unresolved — CTO and affected client PM notified", "CTO + Client Success", "Phone + Email"],
+            ["2 hours", "If P1 unresolved — CEO briefed, external comms prepared", "CEO + PR Team", "Executive Slack + email"],
+        ],
+        [55, USABLE_W - 230, 100, 75]
+    ))
+
+    s.append(Paragraph("2.3 Incident War Room Procedures", styles['SubHead']))
+    s.append(Paragraph(
+        "For P1 and P2 incidents, an incident war room is created in Slack (#incident-{YYYYMMDD}-{seq}). "
+        "The Incident Commander (IC) owns the channel and coordinates all activities. Key rules: "
+        "(1) Only IC makes decisions about customer communication, (2) All actions are logged in the "
+        "channel with timestamps, (3) IC posts status updates at the defined frequency, (4) War room "
+        "stays open until post-mortem is completed.",
+        styles['Body']
+    ))
+
+    s.append(Paragraph("3. Database Emergency Procedures", styles['SectionHead']))
+    s.append(make_table(
+        ["Scenario", "Immediate Action", "Command / Tool", "Recovery Time (RTO)", "Data Loss (RPO)"],
+        [
+            ["Primary DB down", "Promote read replica to primary", "aws rds failover-db-cluster --db-cluster-id phoenix-prod", "5 minutes", "0 (synchronous replication)"],
+            ["Connection pool exhausted", "Kill idle connections, increase pool", "SELECT pg_terminate_backend(pid) WHERE state='idle' AND query_start < now()-'5min'", "2 minutes", "0"],
+            ["Disk space >90%", "Vacuum, archive old data, expand volume", "VACUUM FULL <table>; aws ec2 modify-volume --size 500", "15 minutes", "0"],
+            ["Corrupted index", "Reindex concurrently", "REINDEX INDEX CONCURRENTLY idx_name", "5-30 minutes", "0"],
+            ["Accidental data deletion", "Restore from point-in-time backup", "aws rds restore-db-cluster-to-point-in-time --restore-to-time <timestamp>", "30 minutes", "Up to 5 minutes"],
+            ["Full cluster failure", "Restore from latest snapshot + replay WAL", "aws rds restore-db-cluster-from-snapshot", "1-2 hours", "Up to 1 hour"],
+        ],
+        [80, USABLE_W - 330, 130, 60, 60]
+    ))
+
+    s.append(Paragraph("4. Monitoring & Alerting Reference", styles['SectionHead']))
+    s.append(make_table(
+        ["Service", "Dashboard URL", "Key Metrics", "Alert Threshold", "PagerDuty Service"],
+        [
+            ["API Gateway", "datadog.com/d/kong-overview", "Request rate, error rate, latency p50/p95/p99", "Error rate >1% for 5min, p99 >3s", "api-gateway-prod"],
+            ["User Service", "datadog.com/d/user-svc", "Auth success rate, token refresh rate, DB connections", "Auth failure >5% for 3min", "user-service-prod"],
+            ["Project Service", "datadog.com/d/project-svc", "API latency, Jira sync lag, DB query time", "Jira sync lag >5min, query >2s", "project-service-prod"],
+            ["PostgreSQL", "datadog.com/d/postgres-prod", "Connections, replication lag, disk usage, deadlocks", "Replication lag >10s, disk >85%", "database-prod"],
+            ["Kafka", "datadog.com/d/kafka-prod", "Consumer lag, partition count, throughput", "Consumer lag >10000, broker down", "kafka-prod"],
+            ["Kubernetes", "datadog.com/d/eks-cluster", "Pod restarts, CPU/memory utilization, node health", "Pod restart >3 in 10min, CPU >80%", "kubernetes-prod"],
+        ],
+        [65, 95, USABLE_W - 340, 90, 65]
+    ))
+
+    build_pdf("14_Operations_Runbook.pdf", s)
+
+
+# ============================================================
+# 15. OKR & Performance Dashboard — Q1 2026
+# ============================================================
+def doc_okr_performance():
+    s = title_page(
+        "OKR & Performance Dashboard — Q1 2026",
+        "Objectives, Key Results, and Team Performance Metrics",
+        "People & Culture Team + Engineering Leadership",
+        "Reporting Period: January – March 2026 | Classification: Internal"
+    )
+
+    s.append(Paragraph("1. Company-Level OKRs — Q1 2026", styles['SectionHead']))
+    s.append(Paragraph(
+        "TechViet's Q1 2026 company OKRs are set by the executive team and cascade into department-level "
+        "objectives. Each objective has 2-4 measurable key results with a target score of 0.7 "
+        "(stretch goals). Scores below 0.4 trigger a root-cause review.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Objective", "Key Result", "Target", "Actual Q1", "Score", "Status"],
+        [
+            ["O1: Accelerate Revenue Growth", "KR1: Close 8 new enterprise deals (>$100K each)", "8 deals", "6 deals", "0.75", "On Track"],
+            ["", "KR2: Increase recurring revenue to 65% of total", "65%", "61%", "0.62", "At Risk"],
+            ["", "KR3: Expand into 2 new industry verticals", "2 verticals", "1 (education)", "0.50", "Behind"],
+            ["O2: Deliver World-Class Engineering", "KR1: Achieve 95% sprint completion rate across all teams", "95%", "91%", "0.82", "On Track"],
+            ["", "KR2: Reduce production incidents (P1/P2) by 30% vs Q4", "30% reduction", "22% reduction", "0.73", "On Track"],
+            ["", "KR3: Launch ChatAssist MVP to 50 internal beta users", "50 users", "42 users (beta)", "0.84", "On Track"],
+            ["", "KR4: Achieve 80% automated test coverage on all services", "80%", "74%", "0.68", "At Risk"],
+            ["O3: Build a Talent Magnet Culture", "KR1: Reduce voluntary attrition to <8% annualized", "<8%", "6.2%", "0.90", "Achieved"],
+            ["", "KR2: Achieve eNPS score of 45+", "45", "52", "1.0", "Achieved"],
+            ["", "KR3: Fill 15 open engineering positions (avg <35 days)", "15 hires, <35d", "12 hires, 38d avg", "0.65", "At Risk"],
+        ],
+        [95, USABLE_W - 310, 60, 60, 35, 50]
+    ))
+
+    s.append(Paragraph("2. Engineering Department OKRs", styles['SectionHead']))
+    s.append(Paragraph("2.1 Platform Engineering Team", styles['SubHead']))
+    s.append(make_table(
+        ["Objective", "Key Result", "Target", "Actual", "Score"],
+        [
+            ["Improve Platform Reliability", "Achieve 99.95% API uptime (all services)", "99.95%", "99.92%", "0.80"],
+            ["", "Reduce mean time to recovery (MTTR) to <15 minutes", "<15 min", "18 min", "0.70"],
+            ["", "Complete migration of 3 services from Jenkins to GitHub Actions", "3 services", "3 services", "1.0"],
+            ["Modernize Infrastructure", "Migrate 80% of workloads to ARM-based instances (cost savings)", "80%", "65%", "0.65"],
+            ["", "Implement GitOps for all production deployments via ArgoCD", "100%", "85%", "0.72"],
+        ],
+        [100, USABLE_W - 250, 55, 55, 35]
+    ))
+
+    s.append(Paragraph("2.2 AI & Data Science Team", styles['SubHead']))
+    s.append(make_table(
+        ["Objective", "Key Result", "Target", "Actual", "Score"],
+        [
+            ["Launch ChatAssist RAG System", "Achieve retrieval accuracy >93% on benchmark dataset", ">93%", "91.2%", "0.85"],
+            ["", "Response latency: TTFT <1.5s, full response <6s", "TTFT <1.5s", "TTFT 1.3s, full 5.2s", "0.90"],
+            ["", "Ingest 100% of internal documents (currently 2,847 files)", "2,847 files", "2,312 files", "0.81"],
+            ["Advance ML Capabilities", "Deploy 2 new ML models to production (recommendation + anomaly)", "2 models", "1 model (recommendation)", "0.50"],
+            ["", "Reduce model inference cost by 25% via quantization", "25% reduction", "18% reduction", "0.72"],
+        ],
+        [100, USABLE_W - 250, 55, 70, 35]
+    ))
+
+    s.append(Paragraph("3. Individual Performance Snapshot — Engineering", styles['SectionHead']))
+    s.append(Paragraph(
+        "Below is an anonymized performance distribution for Q1 2026 across engineering teams. "
+        "Ratings follow the 1-5 scale defined in the Employee Handbook section 4.2.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Rating", "Description", "Target %", "Actual % (Q1)", "Headcount", "Notes"],
+        [
+            ["5 — Exceptional", "Consistently exceeds all expectations, strong culture contributor", "5-10%", "7%", "18", "VP approval required"],
+            ["4 — Exceeds", "Exceeds most expectations, delivers ahead of schedule", "20-25%", "24%", "61", "Eligible for accelerated promotion"],
+            ["3 — Meets", "Fully meets expectations, reliable contributor", "50-60%", "55%", "140", "Standard merit increase"],
+            ["2 — Developing", "Partially meets expectations, improvement plan recommended", "10-15%", "11%", "28", "PIP discussion within 2 weeks"],
+            ["1 — Below", "Does not meet expectations, immediate PIP required", "0-5%", "3%", "8", "HR review mandatory"],
+        ],
+        [70, USABLE_W - 305, 50, 55, 50, 80]
+    ))
+
+    s.append(Paragraph("4. Career Ladder Progression — Q1 Promotions", styles['SectionHead']))
+    s.append(make_table(
+        ["Employee", "From Level", "To Level", "Department", "Effective Date", "Salary Adjustment"],
+        [
+            ["Tran Minh Duc", "L3 Senior Engineer", "L4 Staff Engineer", "Platform Engineering", "April 1, 2026", "+18% base + RSU grant"],
+            ["Le Thi Hong", "L2 Engineer", "L3 Senior Engineer", "AI & Data Science", "April 1, 2026", "+15% base"],
+            ["Pham Van Khanh", "L3 Senior Engineer", "L4 Staff Engineer", "Backend Engineering", "April 1, 2026", "+18% base + RSU grant"],
+            ["Nguyen Duc Anh", "L1 Junior Engineer", "L2 Engineer", "Frontend Engineering", "April 1, 2026", "+12% base"],
+            ["Vo Thi Lan", "L3 Senior QA", "L4 Staff QA", "Quality Assurance", "April 1, 2026", "+16% base"],
+            ["Do Thanh Tam", "L4 Staff Designer", "L5 Principal Designer", "Design (UI/UX)", "April 1, 2026", "+22% base + RSU grant"],
+        ],
+        [80, 80, 80, 90, 65, USABLE_W - 395]
+    ))
+
+    s.append(Paragraph("5. Learning & Development Metrics", styles['SectionHead']))
+    s.append(make_table(
+        ["Metric", "Q4 2025", "Q1 2026", "Change", "Target"],
+        [
+            ["Average training hours per employee", "12.5 hrs", "14.2 hrs", "+13.6%", "15 hrs/quarter"],
+            ["Learning budget utilization", "62%", "71%", "+9pp", "80%"],
+            ["Internal tech talks delivered", "8", "11", "+37.5%", "12/quarter"],
+            ["External certifications earned", "15", "22", "+47%", "20/quarter"],
+            ["Mentorship program participation", "34 pairs", "41 pairs", "+20.6%", "50 pairs"],
+            ["Eng blog posts published", "3", "5", "+67%", "4/quarter"],
+        ],
+        [USABLE_W - 260, 60, 60, 55, 60]
+    ))
+
+    build_pdf("15_OKR_Performance_Q1_2026.pdf", s)
+
+
+# ============================================================
+# 16. Client SLA & Account Management
+# ============================================================
+def doc_client_sla():
+    s = title_page(
+        "Client SLA & Account Management Playbook",
+        "Service Level Agreements, Escalation Procedures, and Account Health",
+        "Client Success Team | Version 1.4",
+        "Effective: January 2026 | Classification: Confidential"
+    )
+
+    s.append(Paragraph("1. Service Level Agreement Framework", styles['SectionHead']))
+    s.append(Paragraph(
+        "TechViet offers three SLA tiers based on contract value and client criticality. "
+        "SLA commitments are contractually binding and tracked in real-time via our Client Success "
+        "Dashboard at clients.techviet.vn. SLA credits are automatically calculated when thresholds "
+        "are breached. All SLA metrics are measured on a rolling 30-day basis.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["SLA Tier", "Contract Value", "Uptime SLA", "Response Time (P1)", "Response Time (P2)", "Dedicated CSM", "Monthly Credit Cap"],
+        [
+            ["Platinum", ">$500K/year", "99.99%", "15 minutes", "1 hour", "Yes + TAM", "15% monthly fee"],
+            ["Gold", "$200K–$500K/year", "99.95%", "30 minutes", "2 hours", "Yes", "10% monthly fee"],
+            ["Silver", "<$200K/year", "99.9%", "1 hour", "4 hours", "Shared CSM", "5% monthly fee"],
+        ],
+        [55, 75, 55, 70, 70, 65, USABLE_W - 390]
+    ))
+
+    s.append(Paragraph("2. Active Client Portfolio — Key Accounts", styles['SectionHead']))
+    s.append(make_table(
+        ["Client", "Industry", "SLA Tier", "Annual Contract", "Active Projects", "CSM", "Health Score", "Renewal Date"],
+        [
+            ["VietBank", "Banking & Finance", "Platinum", "$850K", "Phoenix Platform, Mobile Banking v3", "Hoang Duc Anh", "92/100", "June 2026"],
+            ["SaigonHealth", "Healthcare", "Gold", "$420K", "MediTrack v2, HIPAA Compliance Module", "Nguyen Thi Lan", "88/100", "Sept 2026"],
+            ["VNLogistics", "Supply Chain", "Platinum", "$650K", "LogiFlow AI, Fleet Management", "Hoang Duc Anh", "85/100", "Dec 2026"],
+            ["MegaMart", "Retail", "Gold", "$280K", "ShopSmart Recommendation Engine", "Tran Van Hoa", "91/100", "March 2027"],
+            ["FinServe VN", "Financial Services", "Gold", "$380K", "Risk Assessment Platform, API Gateway", "Nguyen Thi Lan", "94/100", "July 2026"],
+            ["MekongPay", "Fintech", "Silver", "$180K", "Payment Processing Module", "Tran Van Hoa", "79/100", "April 2026"],
+            ["GovTech VN", "Government", "Gold", "$450K", "Digital ID Verification, Citizen Portal", "Hoang Duc Anh", "87/100", "Nov 2026"],
+            ["MediCare Plus", "Healthcare", "Silver", "$150K", "Telemedicine Platform MVP", "Nguyen Thi Lan", "83/100", "Aug 2026"],
+            ["TransViet", "Logistics", "Silver", "$120K", "Route Optimization API", "Tran Van Hoa", "90/100", "Feb 2027"],
+            ["PetroVN", "Energy", "Gold", "$350K", "Asset Monitoring IoT Platform", "Hoang Duc Anh", "86/100", "Oct 2026"],
+        ],
+        [55, 60, 45, 55, USABLE_W - 390, 60, 45, 50]
+    ))
+
+    s.append(Paragraph("3. Client Health Score Methodology", styles['SectionHead']))
+    s.append(Paragraph(
+        "The Client Health Score (CHS) is calculated monthly on a 0-100 scale. Scores below 70 "
+        "trigger an account review with VP Sales. Scores below 50 require executive intervention.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Component", "Weight", "Data Source", "Scoring Criteria"],
+        [
+            ["SLA Compliance", "25%", "Automated — monitoring systems", "100 if no breaches, -10 per P1 breach, -5 per P2 breach"],
+            ["Project Delivery", "25%", "PM reports + Jira velocity", "On-time = 100, 1-2 weeks late = 70, >2 weeks = 40"],
+            ["NPS / CSAT", "20%", "Quarterly client survey", "Promoter (9-10) = 100, Passive (7-8) = 60, Detractor (0-6) = 20"],
+            ["Engagement", "15%", "Meeting cadence + responsiveness", "Weekly calls + <24h email response = 100, gaps = lower"],
+            ["Revenue Trend", "15%", "Finance — billing data", "Growing >10% = 100, Stable = 70, Declining = 30"],
+        ],
+        [70, 40, 100, USABLE_W - 210]
+    ))
+
+    s.append(Paragraph("4. Client Escalation Matrix", styles['SectionHead']))
+    s.append(make_table(
+        ["Escalation Level", "Trigger", "TechViet Responder", "Response SLA", "Communication Channel"],
+        [
+            ["Level 1 — Technical", "Bug report or technical question", "Assigned Engineer + CSM", "Per SLA tier", "Jira ticket + Slack shared channel"],
+            ["Level 2 — Service", "SLA breach, repeated issues, or feature delay >2 weeks", "Engineering Manager + CSM", "4 hours", "Email + video call within 24 hours"],
+            ["Level 3 — Account", "Client threatens churn, contract dispute, or health score <70", "VP Sales + VP Engineering", "2 hours", "Executive video call within 12 hours"],
+            ["Level 4 — Executive", "Data breach affecting client, legal issue, or contract termination", "CEO + CTO + Legal", "1 hour", "In-person or video + written response within 4 hours"],
+        ],
+        [65, USABLE_W - 310, 90, 55, 100]
+    ))
+
+    s.append(Paragraph("5. Quarterly Business Review (QBR) Template", styles['SectionHead']))
+    s.append(Paragraph(
+        "CSMs conduct Quarterly Business Reviews with all Gold and Platinum clients. The QBR deck "
+        "follows this standard structure:",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Section", "Content", "Duration", "Owner"],
+        [
+            ["1. Executive Summary", "Health score trend, key wins, challenges, support ticket summary", "5 min", "CSM"],
+            ["2. SLA Performance", "Uptime report, incident summary, response time metrics with trends", "10 min", "CSM + SRE"],
+            ["3. Project Updates", "Milestone tracker, demo of completed features, roadmap preview", "15 min", "PM + Tech Lead"],
+            ["4. Roadmap Alignment", "Client priorities vs TechViet product roadmap, gap analysis", "10 min", "PM + CSM"],
+            ["5. Financial Review", "Invoice summary, upcoming renewals, expansion opportunities", "5 min", "CSM + Finance"],
+            ["6. Action Items", "Next steps with owners and deadlines, follow-up meeting scheduling", "5 min", "CSM"],
+        ],
+        [80, USABLE_W - 220, 45, 60]
+    ))
+
+    build_pdf("16_Client_SLA_Playbook.pdf", s)
+
+
+# ============================================================
+# 17. Career Development & Training Catalog
+# ============================================================
+def doc_career_training():
+    s = title_page(
+        "Career Development & Training Catalog",
+        "Learning Paths, Certification Programs, and Mentorship Framework",
+        "People & Culture Team | Version 2.0",
+        "Effective: January 2026 | Classification: Internal"
+    )
+
+    s.append(Paragraph("1. Engineering Career Ladder — Detailed Competency Matrix", styles['SectionHead']))
+    s.append(Paragraph(
+        "TechViet's engineering career ladder has 6 levels (L1-L6). Each level has defined expectations "
+        "across 4 competency areas: Technical Skills, Delivery & Impact, Leadership & Collaboration, "
+        "and Business Acumen. Promotion requires meeting all competencies at the target level for at "
+        "least one full review cycle (6 months).",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Level", "Title", "Years Exp (Typical)", "Technical Skills", "Delivery & Impact", "Leadership"],
+        [
+            ["L1", "Junior Engineer", "0-2 years", "Completes well-defined tasks with guidance. Writes clean code that passes review. Follows established patterns.", "Delivers assigned tickets on time. Writes unit tests for own code. Fixes straightforward bugs independently.", "Asks questions proactively. Participates in code reviews. Attends team ceremonies."],
+            ["L2", "Engineer", "2-4 years", "Designs and implements features independently. Understands system architecture. Reviews peers' code effectively.", "Owns feature delivery end-to-end. Writes integration tests. Estimates accurately (within 20%).", "Mentors L1 informally. Contributes to technical discussions. Documents decisions."],
+            ["L3", "Senior Engineer", "4-7 years", "Designs complex systems with trade-off analysis. Expert in 2+ technology domains. Leads technical investigations.", "Delivers cross-team projects. Defines technical approach for the team. Reduces tech debt strategically.", "Mentors 1-2 junior engineers formally. Leads design reviews. Drives engineering standards."],
+            ["L4", "Staff Engineer", "7-10 years", "Architects multi-service systems. Sets technical direction for the organization. Evaluates and adopts new technologies.", "Delivers projects with org-wide impact. Defines team OKRs. Balances innovation with reliability.", "Influences engineering culture. Represents TechViet at conferences. Mentors senior engineers."],
+            ["L5", "Principal Engineer", "10-15 years", "Defines architecture strategy across the company. Industry-recognized expertise. Patents or published research.", "Delivers strategic initiatives (multi-quarter). Shapes product direction through technical vision.", "Trusted advisor to CTO. Leads Architecture Review Board. Attracts top talent."],
+            ["L6", "Distinguished Engineer", "15+ years", "Industry thought leader. Shapes the field beyond TechViet. Deep expertise that is irreplaceable.", "Strategic impact: defines what TechViet builds. Multi-year technical vision.", "Executive-level influence. External reputation. Defines engineering DNA."],
+        ],
+        [25, 55, 55, USABLE_W/3 - 60, USABLE_W/3 - 60, USABLE_W/3 - 60]
+    ))
+
+    s.append(Paragraph("2. Certification Programs & Reimbursement", styles['SectionHead']))
+    s.append(Paragraph(
+        "TechViet reimburses 100% of certification exam fees for approved certifications (up to "
+        "VND 15,000,000 per year per employee). Study materials and courses are covered separately "
+        "under the learning budget. Passing a certification earns a one-time bonus.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Certification", "Provider", "Recommended For", "Exam Fee", "Pass Bonus", "Study Time (est.)", "Renewal"],
+        [
+            ["AWS Solutions Architect – Associate", "Amazon Web Services", "L2+ Backend, DevOps", "$150", "VND 3,000,000", "80-100 hours", "3 years"],
+            ["AWS Solutions Architect – Professional", "Amazon Web Services", "L3+ Platform, Architects", "$300", "VND 5,000,000", "150-200 hours", "3 years"],
+            ["Certified Kubernetes Administrator (CKA)", "CNCF / Linux Foundation", "L2+ DevOps, Platform", "$395", "VND 4,000,000", "60-80 hours", "3 years"],
+            ["Google Professional Cloud Architect", "Google Cloud", "L3+ Cloud Engineers", "$200", "VND 4,000,000", "100-120 hours", "2 years"],
+            ["Certified Scrum Master (CSM)", "Scrum Alliance", "L2+ any role, PMs", "$495 (course)", "VND 2,000,000", "16 hours (course)", "2 years"],
+            ["CKAD (Kubernetes Application Developer)", "CNCF / Linux Foundation", "L2+ Backend Developers", "$395", "VND 3,500,000", "40-60 hours", "3 years"],
+            ["Terraform Associate", "HashiCorp", "L2+ DevOps, Platform", "$70", "VND 2,000,000", "40-50 hours", "2 years"],
+            ["CISSP", "ISC2", "L4+ Security Engineers", "$749", "VND 8,000,000", "200-300 hours", "3 years (CPE)"],
+        ],
+        [95, 70, 70, 40, 60, 55, USABLE_W - 390]
+    ))
+
+    s.append(Paragraph("3. Learning Paths by Role", styles['SectionHead']))
+
+    s.append(Paragraph("3.1 Backend Engineer Path", styles['SubHead']))
+    s.append(make_table(
+        ["Phase", "Duration", "Topics", "Resources", "Assessment"],
+        [
+            ["Foundation", "Month 1-3", "Python/FastAPI mastery, PostgreSQL, REST API design, testing (pytest)", "Internal bootcamp, Real Python Pro, TechViet codebase walkthrough", "Build a CRUD API with 90%+ test coverage"],
+            ["Intermediate", "Month 4-6", "System design, Kafka event streaming, caching (Redis), Docker/K8s basics", "Designing Data-Intensive Applications (book), internal Kafka workshop", "Design document for a microservice reviewed by L4+ engineer"],
+            ["Advanced", "Month 7-12", "Distributed systems, observability (Datadog), performance optimization, security", "AWS training, Datadog University, TechViet security workshop", "Lead a production feature deployment end-to-end"],
+            ["Specialization", "Year 2+", "Choose track: Platform Engineering, Data Engineering, ML Engineering, or Security", "Certification path + conference attendance + internal tech talk", "Present at internal tech talk + earn relevant certification"],
+        ],
+        [55, 55, USABLE_W/3 - 40, USABLE_W/3 - 40, USABLE_W/3 - 40]
+    ))
+
+    s.append(Paragraph("3.2 Frontend Engineer Path", styles['SubHead']))
+    s.append(make_table(
+        ["Phase", "Duration", "Topics", "Resources", "Assessment"],
+        [
+            ["Foundation", "Month 1-3", "React 18+, TypeScript, component design, testing (Vitest/Playwright)", "TechViet Design System docs, React docs, TypeScript handbook", "Build a dashboard component with full test suite"],
+            ["Intermediate", "Month 4-6", "State management (Zustand/TanStack), performance optimization, accessibility (WCAG 2.1)", "Web.dev courses, Lighthouse audit workshops, internal a11y workshop", "Achieve Lighthouse score >90 on a production page"],
+            ["Advanced", "Month 7-12", "Micro-frontends, SSR/SSG (Next.js), CI/CD for frontend, design system contribution", "Next.js docs, Module Federation workshop, TechViet Design System repo", "Contribute 3+ components to the shared design system"],
+        ],
+        [55, 55, USABLE_W/3 - 40, USABLE_W/3 - 40, USABLE_W/3 - 40]
+    ))
+
+    s.append(Paragraph("4. Mentorship Program", styles['SectionHead']))
+    s.append(Paragraph(
+        "TechViet runs a formal mentorship program with structured matching, goals, and feedback. "
+        "Mentors must be L3+ with at least 1 year at TechViet. Mentorship counts as a leadership "
+        "competency for promotion reviews.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Aspect", "Details"],
+        [
+            ["Program Duration", "6 months per cycle (January-June, July-December)"],
+            ["Meeting Cadence", "Bi-weekly 1-on-1, minimum 45 minutes. At least 10 sessions per cycle."],
+            ["Matching Process", "Mentees submit goals via HR Portal. HR + Engineering Managers match based on skills gap, career goals, and personality fit."],
+            ["Mentor Commitment", "Max 2 mentees at a time. Mentors receive VND 2,000,000 bonus per successful mentorship cycle."],
+            ["Mentee Expectations", "Come prepared with agenda, complete assigned tasks between sessions, provide feedback at mid-cycle and end-cycle."],
+            ["Success Metrics", "Mentee achieves 2+ stated goals, both parties rate experience 4+/5, mentee receives 'Meets' or above rating."],
+            ["Current Stats (Q1 2026)", "41 active pairs, 89% completion rate, 4.3/5 average satisfaction, 12 mentees promoted within 6 months."],
+        ],
+        [90, USABLE_W - 90]
+    ))
+
+    build_pdf("17_Career_Development_Catalog.pdf", s)
+
+
+# ============================================================
+# 18. Office & Facilities Guide
+# ============================================================
+def doc_office_facilities():
+    s = title_page(
+        "Office & Facilities Guide",
+        "Meeting Rooms, Equipment, Building Access, and Office Services",
+        "Office Management Team | Version 1.2",
+        "Effective: January 2026 | Classification: Internal"
+    )
+
+    s.append(Paragraph("1. Office Locations & Hours", styles['SectionHead']))
+    s.append(make_table(
+        ["Office", "Address", "Capacity", "Hours", "Building Manager", "Emergency Contact"],
+        [
+            ["HQ — Ho Chi Minh City", "Tower A, Floor 12-15, PMH District 7, HCMC", "320 staff", "Mon-Fri 7:00-21:00, Sat 8:00-17:00", "Nguyen Van Tuan (nguyen.tuan@techviet.vn)", "+84-28-xxxx-1001"],
+            ["Hanoi Office", "Floor 8, Keangnam Tower, Pham Hung, Cau Giay", "95 staff", "Mon-Fri 7:30-20:00", "Le Thi Hoa (le.hoa@techviet.vn)", "+84-24-xxxx-2001"],
+            ["Da Nang Office", "Floor 5, Viettel Complex, Hai Chau District", "75 staff", "Mon-Fri 7:30-20:00", "Tran Duc Minh (tran.minh@techviet.vn)", "+84-236-xxxx-3001"],
+        ],
+        [75, USABLE_W - 340, 50, 80, 90, 65]
+    ))
+
+    s.append(Paragraph("2. Meeting Rooms — HQ (Ho Chi Minh City)", styles['SectionHead']))
+    s.append(Paragraph(
+        "All meeting rooms are bookable via Google Calendar. Search for 'TV-' prefix to find rooms. "
+        "Rooms with video conferencing equipment are marked with [VC]. Recurring bookings longer "
+        "than 4 weeks require Office Management approval. No-show policy: if no one joins within "
+        "10 minutes of start time, the room is auto-released.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Room Name", "Floor", "Capacity", "Equipment", "Best For", "Booking Restriction"],
+        [
+            ["TV-HCM-12A 'Saigon' [VC]", "12", "20 people", "85\" TV, Poly Studio X50 camera, whiteboard, HDMI/USB-C", "All-hands, client presentations, cross-office meetings", "Max 2 hours, extendable"],
+            ["TV-HCM-12B 'Mekong' [VC]", "12", "10 people", "65\" TV, Poly Studio P15 camera, whiteboard", "Team standups, sprint planning, client calls", "No restriction"],
+            ["TV-HCM-12C 'Lotus'", "12", "4 people", "Monitor + HDMI cable, whiteboard", "1-on-1s, interviews, quick sync", "No restriction"],
+            ["TV-HCM-13A 'Phoenix' [VC]", "13", "16 people", "75\" TV, Logitech Rally camera, dual whiteboard, Miro board", "Design reviews, architecture discussions, workshops", "Max 3 hours"],
+            ["TV-HCM-13B 'Dragon' [VC]", "13", "8 people", "55\" TV, Owl camera (360°), standing desk option", "Agile ceremonies, daily standups, pair programming", "No restriction"],
+            ["TV-HCM-14A 'Summit' [VC]", "14", "30 people", "2x 75\" TV, Poly Studio X70, PA system, recording", "Company-wide events, town halls, training sessions", "Requires Office Mgmt approval"],
+            ["TV-HCM-14B 'Focus Pod 1-4'", "14", "1-2 people each", "Monitor, noise-canceling booth", "Phone calls, deep work, sensitive conversations", "Max 2 hours per session"],
+            ["TV-HCM-15A 'Rooftop Lounge'", "15", "40 people (standing)", "Portable PA, 2x easels, outdoor seating", "Team socials, casual presentations, brainstorming", "After 5 PM or weekends only"],
+        ],
+        [80, 25, 45, USABLE_W/3 - 30, USABLE_W/3 - 40, 80]
+    ))
+
+    s.append(Paragraph("3. Equipment Checkout & IT Hardware", styles['SectionHead']))
+    s.append(make_table(
+        ["Equipment", "Available Qty", "Checkout Duration", "Where to Get", "Booking Method"],
+        [
+            ["MacBook Pro M3 (loaner)", "5 units", "Up to 2 weeks (while repair)", "IT Help Desk, Floor 13", "Jira ticket: IT-HARDWARE"],
+            ["External Monitor (27\" 4K)", "15 units", "Permanent (assigned to desk)", "IT Help Desk, Floor 13", "Jira ticket: IT-HARDWARE"],
+            ["USB-C Hub / Dock", "20 units", "Permanent", "IT Help Desk, Floor 13", "Self-serve from supply closet"],
+            ["Webcam (Logitech Brio)", "8 units", "Up to 1 month", "IT Help Desk, Floor 13", "Jira ticket: IT-HARDWARE"],
+            ["Noise-Canceling Headset (Jabra)", "30 units", "Permanent (new hire kit)", "Issued during onboarding", "Replacement: Jira IT-HARDWARE"],
+            ["Presentation Clicker", "5 units", "Up to 3 days", "Reception, Floor 12", "Walk-in, sign-out sheet"],
+            ["Portable Projector", "2 units", "Up to 2 days", "Office Management, Floor 12", "Email office@techviet.vn 24h ahead"],
+            ["Standing Desk Converter", "10 units", "Permanent (first-come)", "Office Management, Floor 12", "Email office@techviet.vn"],
+        ],
+        [85, 60, 75, 85, USABLE_W - 305]
+    ))
+
+    s.append(Paragraph("4. Building Access & Security", styles['SectionHead']))
+    s.append(make_table(
+        ["Access Type", "How to Obtain", "Hours", "Restrictions"],
+        [
+            ["Employee Badge", "Issued on Day 1 during onboarding. Replacement: VND 200,000 fee, 2 business days.", "24/7 for badged floors (12-15)", "Lost badges must be reported to Security within 1 hour"],
+            ["Guest Access", "Host employee registers guest at security.techviet.vn at least 2 hours before visit", "Business hours only (8:00-18:00)", "Guests must be escorted at all times, no server room access"],
+            ["After-Hours Access", "Automatic for all employees with valid badge", "After 21:00 weekdays, all day weekends", "Must sign in/out at lobby security desk"],
+            ["Server Room (Floor 13)", "Requires separate biometric enrollment + manager approval", "24/7", "Two-person rule: always enter with another authorized person"],
+            ["Parking", "B1 underground parking, 50 car spots + 100 motorbike spots. Badge-activated gate.", "24/7", "Register vehicle plate at Office Management. Visitors: temporary pass at gate."],
+        ],
+        [70, USABLE_W - 260, 80, 110]
+    ))
+
+    s.append(Paragraph("5. Office Services & Amenities", styles['SectionHead']))
+    s.append(make_table(
+        ["Service", "Location", "Hours", "Details"],
+        [
+            ["Cafeteria", "Floor 15, Rooftop", "Lunch: 11:30-13:30", "VND 50,000 lunch allowance per day (auto-loaded to badge). Menu rotates weekly. Vegetarian and halal options available."],
+            ["Coffee Bar", "Floor 12 Lobby", "8:00-17:00", "Free coffee (espresso, drip, Vietnamese), tea, and snacks. Bring your own cup encouraged."],
+            ["Gym / Fitness Room", "Floor 15", "7:00-21:00", "Basic equipment: treadmills, bikes, free weights, yoga mats. VND 200,000/month gym subsidy for external gym."],
+            ["Nap Room", "Floor 14 (2 pods)", "24/7", "30-minute sessions. Book via nap-room@techviet.vn. Linens changed after each use."],
+            ["Phone Booths", "Floors 12-14 (4 per floor)", "24/7", "Soundproof booths for calls. No booking needed, 30-min max during business hours."],
+            ["Printing / Scanning", "Floor 13, near IT desk", "24/7", "Badge to authenticate. Color printing: 500 pages/month limit. Scanning is unlimited."],
+            ["Mail / Package Pickup", "Reception, Floor 12", "9:00-17:00", "Personal packages accepted. Notification via email when package arrives. 7-day pickup window."],
+            ["Bike Storage", "B1 Parking", "24/7", "20 bike rack spots. First-come-first-served. Shower facilities on Floor 15."],
+        ],
+        [70, 75, 60, USABLE_W - 205]
+    ))
+
+    s.append(Paragraph("6. Emergency Procedures", styles['SectionHead']))
+    s.append(make_table(
+        ["Emergency", "Immediate Action", "Assembly Point", "Contact"],
+        [
+            ["Fire / Smoke", "Pull nearest fire alarm. Evacuate via stairwell (DO NOT use elevators). Close doors behind you.", "PMH Park, across the street from Tower A main entrance", "Fire: 114, Building Security: ext. 100"],
+            ["Medical Emergency", "Call ext. 100 (Security) immediately. First-aid kits on every floor near elevator lobby. Do not move injured person unless danger is present.", "N/A — stay in place until medical arrives", "Ambulance: 115, Security: ext. 100"],
+            ["Earthquake", "Drop, Cover, Hold under nearest desk. Stay away from windows. After shaking stops, evacuate if building damage visible.", "PMH Park", "Security: ext. 100"],
+            ["Power Outage", "Generator auto-starts within 30 seconds for Floors 13 (servers) and 12 (lobby). Other floors: use battery backup for laptops.", "N/A — stay in place", "Building Management: ext. 200"],
+            ["Security Threat", "Lock doors, move away from windows, silence phone. Follow instructions from Security team.", "As directed by Security", "Police: 113, Security: ext. 100"],
+        ],
+        [55, USABLE_W - 250, 85, 80]
+    ))
+
+    build_pdf("18_Office_Facilities_Guide.pdf", s)
+
+
+# ============================================================
+# 19. Product Release Notes — ChatAssist v2.3
+# ============================================================
+def doc_release_notes():
+    s = title_page(
+        "Product Release Notes — ChatAssist v2.3",
+        "New Features, Improvements, Bug Fixes, and Known Issues",
+        "AI & Data Science Team | Release Date: March 15, 2026",
+        "Build: 2.3.0-rc4 | Branch: release/2.3 | Classification: Internal"
+    )
+
+    s.append(Paragraph("1. Release Overview", styles['SectionHead']))
+    s.append(Paragraph(
+        "ChatAssist v2.3 is a major release focused on multilingual support, improved retrieval "
+        "accuracy, and Slack integration. This release includes 47 commits across 23 PRs, with "
+        "contributions from 8 team members. The release has been validated in UAT with 50 internal "
+        "beta testers over 2 weeks, achieving a 4.2/5.0 satisfaction score.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Metric", "v2.2 (Previous)", "v2.3 (Current)", "Change"],
+        [
+            ["Retrieval Accuracy (benchmark)", "87.3%", "91.2%", "+3.9pp"],
+            ["TTFT (Time to First Token)", "1.8s", "1.3s", "-27.8%"],
+            ["Full Response Time (median)", "6.1s", "5.2s", "-14.8%"],
+            ["Documents Indexed", "1,847", "2,312", "+25.2%"],
+            ["Supported Languages", "1 (English)", "3 (English, Vietnamese, mixed)", "+2 languages"],
+            ["Daily Active Users (beta)", "28", "42", "+50%"],
+            ["User Satisfaction (beta)", "3.8/5.0", "4.2/5.0", "+10.5%"],
+        ],
+        [USABLE_W - 230, 80, 80, 55]
+    ))
+
+    s.append(Paragraph("2. New Features", styles['SectionHead']))
+    s.append(make_table(
+        ["Feature", "Description", "PR #", "Author"],
+        [
+            ["Multilingual Support", "ChatAssist now supports Vietnamese and mixed English-Vietnamese queries. Uses multilingual-e5-large embedding model for cross-language retrieval. Vietnamese queries can find English documents and vice versa. Language detection is automatic.", "#247", "Le Thi Hong"],
+            ["Slack Integration", "Users can query ChatAssist directly from Slack via the /ask command or by mentioning @ChatAssist in any channel. Responses include source citations and a 'View Full Answer' link to the web UI. Supports thread-based follow-up questions.", "#251", "Nguyen Duc Anh"],
+            ["Source Attribution UI", "Each answer now shows numbered source citations [1][2][3] with expandable preview cards. Clicking a citation opens the original document at the relevant section. Confidence scores are displayed per source.", "#238", "Do Thanh Tam"],
+            ["Admin Analytics Dashboard", "New admin page showing: daily query volume, popular topics, unanswered questions, user feedback trends, document coverage gaps. Exportable to CSV.", "#244", "Pham Van Khanh"],
+            ["Feedback Loop", "Users can rate answers (thumbs up/down) and provide text feedback. Negative feedback triggers automatic review queue for content team. Weekly digest sent to document owners.", "#242", "Dr. Tran Minh Khoa"],
+            ["Conversation Memory", "ChatAssist maintains context across multi-turn conversations (up to 10 turns). Users can reference previous answers ('like you mentioned earlier'). Session persists for 30 minutes of inactivity.", "#249", "Le Thi Hong"],
+        ],
+        [75, USABLE_W - 175, 30, 70]
+    ))
+
+    s.append(Paragraph("3. Improvements", styles['SectionHead']))
+    s.append(make_table(
+        ["Area", "Improvement", "Impact", "PR #"],
+        [
+            ["Retrieval", "Upgraded to hybrid search (vector + BM25 with RRF fusion). Alpha parameter tuned to 0.7 for optimal balance.", "+3.9pp retrieval accuracy", "#235"],
+            ["Retrieval", "Added cross-encoder reranker (bge-reranker-base) as second-stage ranking. Top-40 candidates reranked to top-6.", "+2.1pp precision@5", "#236"],
+            ["Chunking", "Implemented semantic chunking based on sentence embedding similarity. Replaces fixed 500-token chunks with topic-aware boundaries.", "Chunks are more coherent, +15% relevance", "#240"],
+            ["Ingestion", "Parallel document processing: 4 workers, batch embedding (32 docs). Progress bar in admin UI.", "3x faster ingestion (100 pages/min)", "#245"],
+            ["UI", "Redesigned chat interface with message streaming, code syntax highlighting, and markdown rendering.", "Improved readability and UX score", "#243"],
+            ["Performance", "Response caching for repeated queries (Redis, TTL 1 hour). Cache hit rate: ~22% in beta.", "40% reduction in LLM API calls", "#248"],
+            ["Security", "Added per-user document access control. Users only see results from documents they have permission to access.", "RBAC compliance for sensitive docs", "#250"],
+        ],
+        [55, USABLE_W - 195, 85, 30]
+    ))
+
+    s.append(Paragraph("4. Bug Fixes", styles['SectionHead']))
+    s.append(make_table(
+        ["Bug ID", "Description", "Root Cause", "Fix", "Severity"],
+        [
+            ["BUG-1823", "Table data not extracted from multi-page PDFs spanning 3+ pages", "pdfplumber page cropping excluded table continuation rows", "Extended table detection to merge cross-page table fragments", "Medium"],
+            ["BUG-1847", "Answer hallucination when no relevant documents found", "LLM generated plausible but incorrect answers when retrieval returned low-confidence results", "Added confidence threshold (0.3); below threshold returns 'I don't have enough information'", "High"],
+            ["BUG-1856", "Duplicate chunks created when re-uploading same document", "Document deduplication checked filename only, not content hash", "Added SHA-256 content hash comparison before ingestion", "Medium"],
+            ["BUG-1861", "Special characters in queries (e.g., C++, .NET) causing search failures", "Query tokenizer stripped special characters before embedding", "Added character preservation for known technical terms", "Low"],
+            ["BUG-1872", "Session timeout not properly clearing conversation context", "Redis TTL not applied to conversation history keys", "Fixed Redis key expiry to match session TTL (30 min)", "Low"],
+            ["BUG-1879", "Vietnamese diacritics not preserved in document titles after ingestion", "UTF-8 encoding lost during PDF text extraction normalization", "Added Unicode NFC normalization, preserving Vietnamese characters", "Medium"],
+        ],
+        [45, USABLE_W - 280, 95, 95, 40]
+    ))
+
+    s.append(Paragraph("5. Known Issues & Limitations", styles['SectionHead']))
+    s.append(make_table(
+        ["Issue", "Description", "Workaround", "Planned Fix"],
+        [
+            ["KNOWN-001", "Large tables (>50 rows) may be truncated in responses due to LLM context window limits", "Ask about specific rows or filter criteria", "v2.4 — table summarization"],
+            ["KNOWN-002", "Scanned PDFs (image-based) are not yet supported; only text-based PDFs are ingested", "Convert scanned PDFs to text using Adobe Acrobat OCR before upload", "v2.5 — Tesseract OCR integration"],
+            ["KNOWN-003", "Response streaming occasionally stutters on slow network connections (<5 Mbps)", "Refresh the page if streaming stops", "v2.4 — WebSocket reconnection"],
+            ["KNOWN-004", "Excel (.xlsx) and PowerPoint (.pptx) files are parsed but table layout may be imperfect", "Convert complex spreadsheets to PDF before upload", "v2.5 — improved spreadsheet parser"],
+        ],
+        [55, USABLE_W - 230, 85, 85]
+    ))
+
+    s.append(Paragraph("6. Upgrade Instructions", styles['SectionHead']))
+    s.append(Paragraph(
+        "This is a backward-compatible release. No database migration required. Existing document "
+        "indexes are compatible with v2.3. To take advantage of the new multilingual embedding model, "
+        "a full re-indexing is recommended (approximately 4 hours for the current 2,312-document corpus).",
+        styles['Body']
+    ))
+    s.append(make_table(
+        ["Step", "Command", "Duration", "Notes"],
+        [
+            ["1. Pull latest image", "docker pull techviet/chatassist:2.3.0", "2 minutes", "Verify SHA: sha256:a1b2c3..."],
+            ["2. Update config", "cp config.yaml.example config.yaml && edit", "5 minutes", "New: MULTILINGUAL_ENABLED, SLACK_BOT_TOKEN"],
+            ["3. Run migrations", "python manage.py migrate", "30 seconds", "Adds feedback, analytics tables"],
+            ["4. Restart services", "docker compose up -d", "1 minute", "Health check: /api/v1/health"],
+            ["5. Re-index (optional)", "python scripts/reindex.py --model=multilingual-e5-large", "~4 hours", "Run during off-hours; non-blocking"],
+        ],
+        [80, USABLE_W - 240, 55, 100]
+    ))
+
+    build_pdf("19_ChatAssist_Release_Notes_v2.3.pdf", s)
+
+
+# ============================================================
+# 20. Procurement & Vendor Management Policy
+# ============================================================
+def doc_procurement():
+    s = title_page(
+        "Procurement & Vendor Management Policy",
+        "Purchasing Procedures, Approval Workflows, and Vendor Evaluation",
+        "Finance & Operations Team | Version 3.1",
+        "Effective: January 2026 | Classification: Internal"
+    )
+
+    s.append(Paragraph("1. Procurement Approval Matrix", styles['SectionHead']))
+    s.append(Paragraph(
+        "All purchases must follow the approval workflow based on total cost (including tax and "
+        "multi-year commitment). Purchase requests are submitted via the TechViet Procurement Portal "
+        "at procurement.techviet.vn. Emergency purchases (critical to operations) can be approved "
+        "retroactively within 48 hours with VP-level authorization.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Purchase Amount (VND)", "USD Equivalent", "Required Approvals", "Processing Time", "Payment Method"],
+        [
+            ["< 5,000,000", "< $200", "Team Lead", "Same day", "Corporate credit card or petty cash"],
+            ["5,000,000 – 25,000,000", "$200 – $1,000", "Team Lead + Department Head", "1-2 business days", "Corporate credit card"],
+            ["25,000,000 – 100,000,000", "$1,000 – $4,000", "Department Head + Finance Manager", "3-5 business days", "Bank transfer (PO required)"],
+            ["100,000,000 – 500,000,000", "$4,000 – $20,000", "VP + Finance Director + CFO", "5-10 business days", "Bank transfer (PO + contract required)"],
+            ["> 500,000,000", "> $20,000", "CFO + CEO + Board (if >$50K)", "10-20 business days", "Bank transfer (PO + contract + legal review)"],
+        ],
+        [80, 65, USABLE_W - 290, 65, 80]
+    ))
+
+    s.append(Paragraph("2. Software License Procurement", styles['SectionHead']))
+    s.append(Paragraph(
+        "All software purchases must be reviewed by IT Security for compliance and by Finance for "
+        "budget alignment. SaaS subscriptions are renewed annually unless cancellation is requested "
+        "60 days before renewal date. Shadow IT (unauthorized software) is prohibited per IT Security Policy section 3.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Software", "Category", "License Type", "Annual Cost", "Users", "Owner", "Renewal Date", "Approval Status"],
+        [
+            ["GitHub Enterprise", "Development", "Enterprise Cloud", "$252,000 (yearly)", "280 seats", "VP Engineering", "July 2026", "Auto-renew approved"],
+            ["Jira + Confluence", "Project Mgmt", "Cloud Premium", "$89,600 (yearly)", "320 seats", "VP Engineering", "Sept 2026", "Auto-renew approved"],
+            ["Figma", "Design", "Enterprise", "$45,000 (yearly)", "25 seats", "Design Lead", "June 2026", "Review pending"],
+            ["Slack", "Communication", "Business+", "$76,800 (yearly)", "480 seats", "IT Manager", "Jan 2027", "Auto-renew approved"],
+            ["Datadog", "Observability", "Enterprise", "$180,000 (yearly)", "15 hosts + APM", "SRE Lead", "April 2026", "Renewal in progress"],
+            ["AWS", "Cloud Infra", "Enterprise Support", "$1,440,000 (yearly est.)", "Org-wide", "CTO", "Ongoing", "Monthly billing"],
+            ["1Password", "Security", "Business", "$19,200 (yearly)", "480 seats", "CISO", "March 2027", "Auto-renew approved"],
+            ["SendGrid", "Email", "Pro", "$14,400 (yearly)", "N/A", "Platform Team", "Aug 2026", "Auto-renew approved"],
+            ["Notion", "Documentation", "Team", "$28,800 (yearly)", "200 seats", "Product Team", "Nov 2026", "Under evaluation"],
+            ["Linear", "Issue Tracking", "Standard", "$24,000 (yearly)", "150 seats", "Engineering Mgr", "Dec 2026", "Pilot — decision pending"],
+        ],
+        [60, 50, 55, 65, 50, 55, 50, USABLE_W - 385]
+    ))
+
+    s.append(Paragraph("3. Hardware Procurement Standards", styles['SectionHead']))
+    s.append(make_table(
+        ["Role", "Standard Equipment", "Specifications", "Budget (VND)", "Refresh Cycle"],
+        [
+            ["Engineer (Mac)", "MacBook Pro 14\"", "M3 Pro, 18GB RAM, 512GB SSD", "55,000,000", "3 years"],
+            ["Engineer (Windows)", "Dell XPS 15", "i7-13700H, 32GB RAM, 1TB SSD", "42,000,000", "3 years"],
+            ["AI/ML Engineer", "Dell Precision 5690", "i9-14900HX, 64GB RAM, 2TB SSD, RTX 4080", "95,000,000", "3 years"],
+            ["Designer", "MacBook Pro 16\"", "M3 Max, 36GB RAM, 1TB SSD", "72,000,000", "3 years"],
+            ["Non-Technical", "Dell Latitude 5540", "i5-1345U, 16GB RAM, 256GB SSD", "22,000,000", "4 years"],
+            ["Monitor (standard)", "Dell U2723QE 27\" 4K", "USB-C hub, 90W PD", "12,000,000", "5 years"],
+            ["Monitor (design)", "Dell UP3218K 32\" 8K or Apple Studio Display", "Color-calibrated, P3 wide gamut", "35,000,000", "5 years"],
+        ],
+        [70, 80, USABLE_W - 280, 60, 45]
+    ))
+
+    s.append(Paragraph("4. Vendor Evaluation Criteria", styles['SectionHead']))
+    s.append(Paragraph(
+        "New vendors must pass a structured evaluation before being added to the approved vendor list. "
+        "Evaluations are conducted by a cross-functional team (requesting department + IT Security + Finance + Legal). "
+        "Vendors scoring below 60/100 are rejected. Scores 60-75 require VP approval with documented risk acceptance.",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Criteria", "Weight", "Score 1-5", "What We Evaluate"],
+        [
+            ["Technical Fit", "25%", "5 = Perfect fit", "Does the product meet our requirements? API availability? Integration complexity?"],
+            ["Security & Compliance", "25%", "5 = SOC2 + ISO27001", "SOC2 report, data residency, encryption, GDPR/PDPD compliance, pen test results"],
+            ["Financial", "20%", "5 = Best value", "Total cost of ownership (3-year), pricing model flexibility, exit costs"],
+            ["Vendor Stability", "15%", "5 = Public/profitable", "Company size, funding, customer base, market position, financial health"],
+            ["Support & SLA", "15%", "5 = 24/7 + dedicated", "Response times, dedicated account manager, documentation quality, community"],
+        ],
+        [80, 35, 60, USABLE_W - 175]
+    ))
+
+    s.append(Paragraph("5. Expense Reimbursement for Software & Tools", styles['SectionHead']))
+    s.append(Paragraph(
+        "Individual software purchases under VND 2,000,000 can be reimbursed via the expense system "
+        "if pre-approved by the team lead. The annual personal tools budget is VND 5,000,000 per "
+        "employee (separate from the learning budget). Common approved tools:",
+        styles['Body']
+    ))
+
+    s.append(make_table(
+        ["Tool Category", "Examples", "Max Reimbursement", "Approval"],
+        [
+            ["IDE / Code Editor", "JetBrains All Products Pack, Sublime Text", "VND 5,000,000/year", "Team Lead"],
+            ["Productivity", "Raycast, Alfred, Magnet, Rectangle Pro", "VND 1,000,000/year", "Self-approve"],
+            ["Learning Platform", "O'Reilly Safari, Pluralsight, Udemy Pro", "Covered by learning budget", "Team Lead"],
+            ["AI Assistant", "GitHub Copilot, Cursor Pro", "VND 3,000,000/year", "Team Lead + IT Security review"],
+            ["Design Tools", "Sketch, Principle, ProtoPie", "VND 5,000,000/year", "Design Lead"],
+        ],
+        [70, 120, 85, USABLE_W - 275]
+    ))
+
+    build_pdf("20_Procurement_Vendor_Policy.pdf", s)
+
+
+# ============================================================
 # MAIN
 # ============================================================
 if __name__ == "__main__":
@@ -1939,4 +2900,12 @@ if __name__ == "__main__":
     doc_it_faq()
     doc_data_privacy()
     doc_meeting_minutes()
+    doc_api_documentation()
+    doc_operations_runbook()
+    doc_okr_performance()
+    doc_client_sla()
+    doc_career_training()
+    doc_office_facilities()
+    doc_release_notes()
+    doc_procurement()
     print(f"\nDone! {len(os.listdir(OUTPUT_DIR))} documents generated in: {OUTPUT_DIR}")

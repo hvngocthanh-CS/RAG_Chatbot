@@ -102,7 +102,9 @@ def _is_heading(text: str) -> bool:
         return False
     if text.isupper() and len(text) < 80:
         return True
-    if _NUMBERED_HEADING_RE.match(text):
+    # Numbered pattern must also be short — long text starting with "5." is
+    # a heading merged with body text, not a real heading.
+    if _NUMBERED_HEADING_RE.match(text) and len(text) < 100:
         return True
     if len(text) < 80 and not text.endswith((".", ":", ";", "?", ",")):
         return True
@@ -290,8 +292,12 @@ class DocumentParser:
 
         for i in range(1, len(line_objs)):
             gap = line_objs[i]["top"] - line_objs[i - 1]["top"]
-            # A gap > ~1.8x normal line height = new paragraph
-            if gap > 25:
+            # Adaptive threshold: 1.8x the expected line height based on
+            # the current paragraph's font size.  Falls back to 25pt when
+            # font info is unavailable.
+            avg_size = cur_para[-1].get("avg_size", 10)
+            para_break_threshold = max(avg_size * 1.2 * 1.8, 18)
+            if gap > para_break_threshold:
                 para_text = " ".join(l["text"] for l in cur_para)
                 avg_font = sum(l["avg_size"] for l in cur_para) / len(cur_para)
                 paragraphs.append((para_text, avg_font))
