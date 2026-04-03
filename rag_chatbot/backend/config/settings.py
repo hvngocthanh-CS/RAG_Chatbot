@@ -23,13 +23,9 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     API_PREFIX: str = "/api/v1"
 
-    # --- LLM ---
-    LLM_PROVIDER: Literal["ollama", "vllm"] = "ollama"
+    # --- LLM (Ollama) ---
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
-    OLLAMA_MODEL: str = "phi3"
-    VLLM_BASE_URL: str = "http://localhost:8001/v1"
-    VLLM_MODEL_NAME: str = "microsoft/Phi-3-mini-4k-instruct"
-    VLLM_API_KEY: str = "not-needed"
+    OLLAMA_MODEL: str = "llama3.2"
     LLM_TEMPERATURE: float = 0.0
     LLM_MAX_TOKENS: int = 2048
     LLM_TOP_P: float = 0.95
@@ -57,8 +53,6 @@ class Settings(BaseSettings):
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
     QDRANT_API_KEY: Optional[str] = None
-    QDRANT_GRPC_PORT: int = 6334
-    QDRANT_PREFER_GRPC: bool = True
     COLLECTION_NAME: str = "documents"
 
     # --- Document Processing ---
