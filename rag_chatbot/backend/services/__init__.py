@@ -38,6 +38,10 @@ async def initialize_services():
     from backend.services.retrieval import RetrievalService
     _services["retrieval"] = RetrievalService()
 
+    # Conversation manager (singleton)
+    from backend.services.conversation import ConversationManager
+    _services["conversation"] = ConversationManager()
+
     # Cache (optional)
     if settings.USE_CACHE:
         from backend.services.cache import CacheService

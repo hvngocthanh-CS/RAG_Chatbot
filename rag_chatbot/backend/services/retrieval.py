@@ -1,17 +1,24 @@
 """
 Retrieval Service — Step 6 of the RAG pipeline.
 
-Implements the full retrieval pipeline:
-  0. Conversational query rewriting (follow-up → standalone query)
-  1. Query understanding (detect intent: policy, procedure, contact, ...)
-  2. Query expansion based on intent
-  3. Enhance query with conversation context
-  4. Vector search (semantic similarity)
-  5. Score threshold filtering
-  6. Keyword search + RRF fusion (if hybrid enabled)
-  7. Intent-based metadata boosting
-  8. Cross-encoder reranking
-  9. Return top-k results
+Implements the retrieval pipeline:
+  1. Conversational query rewriting (follow-up → standalone query)
+  2. Vector search (semantic similarity)
+  3. Keyword search + RRF fusion (if hybrid enabled)
+  4. Score threshold filtering (after fusion, on unified scores)
+  5. Cross-encoder reranking
+  6. Return top-k results
+
+Removed (with rationale):
+  - Query intent detection: regex-based, too rigid. Modern embedding
+    models already encode intent into the vector. Adds complexity
+    without measurable retrieval improvement.
+  - Query expansion: appending generic keywords ("policy rule guideline
+    regulation compliance") dilutes both BM25 precision and embedding
+    quality. The original query is almost always better.
+  - Intent-based score boosting: hardcoded 5x multipliers for tables/
+    pages distort ranking and can bury genuinely relevant chunks.
+    Cross-encoder reranking is a much better way to re-score.
 """
 import logging
 from typing import List, Dict, Any, Optional
@@ -19,18 +26,16 @@ from typing import List, Dict, Any, Optional
 from backend.config import settings
 from backend.services import get_service
 from backend.services.reranker import RerankerService
-from backend.services.query_understanding import QueryUnderstandingService
 from backend.services.query_rewriter import QueryRewriterService
 
 logger = logging.getLogger(__name__)
 
 
 class RetrievalService:
-    """Advanced retrieval service with hybrid search and reranking."""
+    """Retrieval service with hybrid search and reranking."""
 
     def __init__(self):
         self.reranker = RerankerService() if settings.USE_RERANKER else None
-        self.query_understanding = QueryUnderstandingService()
         self.query_rewriter = QueryRewriterService()
 
     @property
@@ -52,7 +57,13 @@ class RetrievalService:
         top_k = top_k or settings.TOP_K_RERANK
         retrieval_k = settings.TOP_K_RETRIEVAL
 
-        # Step 0: Conversational query rewriting
+        # Step 1: Conversational query rewriting
+        # Converts follow-up questions ("What about that?") into
+        # standalone queries so vector search works correctly.
+        #
+        # QUERY_REWRITE_MIN_TURNS=2 means "need at least 2 messages in
+        # history" = 1 prior user+assistant exchange. This ensures we
+        # only call the rewriter when there's actual context to resolve.
         retrieval_query = query
         if (
             settings.QUERY_REWRITE_ENABLED
@@ -63,52 +74,26 @@ class RetrievalService:
                 question=query,
                 conversation_history=conversation_history,
             )
+            if retrieval_query != query:
+                logger.info("Query rewritten: [%s] → [%s]",
+                            query[:60], retrieval_query[:60])
 
-        # Step 1: Query understanding
-        intent = self.query_understanding.analyze_query(query)
-        logger.info(
-            "intent=%s confidence=%.2f rewrite=%s",
-            intent.intent_type, intent.confidence,
-            "yes" if retrieval_query != query else "no",
-        )
-
-        # Step 2: Prepare query variants
-        embedding_query = self._enhance_query(retrieval_query, conversation_history)
-        keyword_query = self.query_understanding.expand_query(retrieval_query, intent)
-
-        # Step 3: Vector search
-        query_embedding = await self.embedding_service.embed_query(embedding_query)
-
+        # Step 2: Vector search (semantic similarity)
+        query_embedding = await self.embedding_service.embed_query(retrieval_query)
         search_filters = filters or {}
-        fetch_k = retrieval_k * 2 if intent.page_filter else retrieval_k
 
         vector_results = await self.vector_store.search(
             query_embedding=query_embedding,
-            top_k=fetch_k,
+            top_k=retrieval_k,
             filters=search_filters,
         )
 
-        # Step 4: Score threshold filtering
-        before = len(vector_results)
-        vector_results = [
-            r for r in vector_results
-            if r.get("score", 0) >= settings.RETRIEVAL_SCORE_THRESHOLD
-        ]
-        if before != len(vector_results):
-            logger.info(
-                "Score threshold (%.2f) filtered %d/%d chunks",
-                settings.RETRIEVAL_SCORE_THRESHOLD,
-                before - len(vector_results), before,
-            )
-
-        # Step 5: Intent-based boosting
-        if intent.page_filter or intent.boost_metadata:
-            vector_results = self._apply_intent_boosting(vector_results, intent)
-
-        # Step 6: Hybrid search (keyword + RRF fusion)
+        # Step 3: Hybrid search — keyword (BM25) + RRF fusion
+        # BM25 catches exact term matches that semantic search misses
+        # (e.g. acronyms, proper nouns, policy numbers like "ADR-001").
         if settings.USE_HYBRID_SEARCH:
             keyword_results = await self.vector_store.keyword_search(
-                query=keyword_query,
+                query=retrieval_query,
                 top_k=retrieval_k,
                 filters=search_filters,
             )
@@ -119,11 +104,38 @@ class RetrievalService:
         else:
             combined_results = vector_results
 
+        # Step 4: Score threshold filtering (AFTER fusion)
+        # Applied after RRF so we filter on unified scores.
+        # RRF scores are small (0.001–0.03), so we use a relative
+        # threshold: keep results scoring >= 20% of the top result.
+        if combined_results:
+            top_score = combined_results[0]["score"]
+            # For cosine-only (no RRF), use absolute threshold
+            # For RRF scores, use relative threshold
+            if settings.USE_HYBRID_SEARCH and top_score < 0.1:
+                # RRF scores — use relative threshold
+                min_score = top_score * 0.2
+            else:
+                # Cosine scores — use configured absolute threshold
+                min_score = settings.RETRIEVAL_SCORE_THRESHOLD
+
+            before = len(combined_results)
+            combined_results = [
+                r for r in combined_results if r["score"] >= min_score
+            ]
+            filtered = before - len(combined_results)
+            if filtered:
+                logger.info("Score filter removed %d/%d chunks (min=%.4f)",
+                            filtered, before, min_score)
+
         if not combined_results:
             logger.warning("No results found in retrieval")
             return []
 
-        # Step 7: Reranking
+        # Step 5: Cross-encoder reranking
+        # The most impactful step: a cross-encoder sees (query, passage)
+        # together and scores true relevance, fixing ranking errors from
+        # the cheaper bi-encoder search.
         if self.reranker and settings.USE_RERANKER:
             rerank_candidates = combined_results[: int(top_k * 2.5)]
             logger.info("Reranking %d candidates...", len(rerank_candidates))
@@ -136,55 +148,22 @@ class RetrievalService:
         return combined_results[:top_k]
 
     # ------------------------------------------------------------------
-    # Intent boosting
-    # ------------------------------------------------------------------
-
-    def _apply_intent_boosting(self, results, intent):
-        if not results:
-            return results
-
-        for chunk in results:
-            score = chunk.get("score", 0.0)
-            meta = chunk.get("metadata", {})
-            page_num = meta.get("page_number")
-            chunk_type = meta.get("chunk_type", "text")
-
-            if intent.boost_metadata and intent.boost_metadata.get("table"):
-                if chunk_type in ("table", "table_rows"):
-                    score *= intent.boost_metadata.get("table", 5.0)
-            elif intent.page_filter and page_num in intent.page_filter:
-                factor = intent.boost_metadata.get("page_number", 5.0) if intent.boost_metadata else 5.0
-                score *= factor
-
-            chunk["score"] = score
-
-        results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
-        return results
-
-    # ------------------------------------------------------------------
-    # Query enhancement
-    # ------------------------------------------------------------------
-
-    def _enhance_query(self, query, conversation_history):
-        if not conversation_history:
-            return query
-
-        last_user = None
-        for turn in reversed(conversation_history):
-            if turn.get("role") == "user":
-                last_user = turn.get("content", "").strip()
-                break
-
-        if not last_user or last_user.lower()[:80] == query.lower()[:80]:
-            return query
-
-        return f"Context: {last_user[:120]} | Question: {query}"
-
-    # ------------------------------------------------------------------
     # Reciprocal Rank Fusion
     # ------------------------------------------------------------------
 
-    def _reciprocal_rank_fusion(self, vector_results, keyword_results, alpha=0.5, k=60):
+    def _reciprocal_rank_fusion(
+        self, vector_results, keyword_results, alpha=0.5, k=60,
+    ):
+        """
+        Combine vector and keyword results using Reciprocal Rank Fusion.
+
+        RRF score = alpha / (k + rank_vector) + (1-alpha) / (k + rank_keyword)
+
+        Why RRF works:
+          - Uses RANK not raw scores, so different score scales don't matter.
+          - A chunk ranked high by both methods gets a much higher combined score.
+          - k=60 is the standard constant from the original RRF paper.
+        """
         scores = {}
         chunks = {}
 

@@ -1,50 +1,26 @@
+# RAG Chatbot - Minimal dependencies
+# For full pinned versions, see requirements-api.txt
+
 # Web
 fastapi
 uvicorn[standard]
 python-multipart
+pydantic-settings
 
-# Document
-pypdf
+# Document Processing
 pdfplumber
 python-docx
-python-pptx
 
 # Text
 tiktoken
+rank_bm25
 
-# ML / Embeddings
+# ML / Embeddings / Reranking
 sentence-transformers
-huggingface_hub
+torch
 
 # Vector DB
-chromadb
 qdrant-client
 
-# LLM client
+# LLM client (OpenAI-compatible for vLLM/Ollama)
 openai
-aiohttp
-
-# Cache
-redis
-
-# Utils
-tenacity
-slowapi
-
-# Observability (giữ nhẹ thôi)
-prometheus-client
-
-# Evaluation
-numpy<2
-scikit-learn
-nltk
-
-# System
-psutil
-pynvml
-pyyaml
-
-# Dev
-python-dotenv
-rich
-typer

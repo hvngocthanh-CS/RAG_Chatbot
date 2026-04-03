@@ -100,8 +100,13 @@ class RerankerService:
                 reranked_chunk = chunk.copy()
                 norm_score = _sigmoid(float(raw_score))
                 reranked_chunk["rerank_score"] = norm_score
-                original_score = chunk.get("score", 0)
-                reranked_chunk["score"] = 0.3 * original_score + 0.7 * norm_score
+                # Use only the cross-encoder score for final ranking.
+                # The original score (cosine or RRF) is on a completely
+                # different scale, so blending them is meaningless.
+                # The cross-encoder already sees (query, passage) jointly
+                # and is strictly more accurate than the bi-encoder score.
+                reranked_chunk["original_score"] = chunk.get("score", 0)
+                reranked_chunk["score"] = norm_score
                 scored_chunks.append(reranked_chunk)
             
             # Sort by combined score

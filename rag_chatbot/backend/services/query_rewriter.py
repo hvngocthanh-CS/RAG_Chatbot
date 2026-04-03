@@ -5,22 +5,29 @@ Converts follow-up questions into fully self-contained, standalone queries
 so that the vector retrieval step works correctly even in multi-turn
 conversations.
 
-Industry pattern used by:
-  - Cohere RAG pipeline (Grounding with rewrite)
-  - LlamaIndex CondenseQuestionChatEngine
-  - LangChain ConversationalRetrievalChain (we replicate the intent without
-    the framework)
+Why this is needed:
+  User asks: "Tell me about the leave policy"
+  Then asks: "How many days?"
+  Without rewriting, we'd search for "How many days?" — way too vague.
+  After rewriting: "How many leave days are employees allowed per year?"
 
-Example
--------
-history  : [Q: "Tell me about the leave policy.", A: "..."]
-follow-up: "How many days are allowed?"
-rewritten: "How many leave days are employees allowed per year according to
-            the company leave policy?"
+Design decisions:
+  - Always rewrite when there is conversation history. The old approach
+    of checking for pronouns ("it", "they") missed too many implicit
+    follow-ups ("And the deadline?", "More details", "For IT dept?").
+    A simple LLM call is cheap (max_tokens=120, temperature=0) and
+    the model is smart enough to return the query unchanged if it's
+    already self-contained (rule 4 in the system prompt).
+  - Reuses the LLM client from the service registry instead of creating
+    a separate AsyncOpenAI client, sharing the connection pool and
+    benefiting from the circuit breaker / retry logic in LLMService.
+  - Errors never block retrieval — always falls back to original query.
 """
 
 import logging
 from typing import List, Dict, Optional
+
+from backend.services import get_service
 
 logger = logging.getLogger(__name__)
 
@@ -52,15 +59,10 @@ class QueryRewriterService:
     """
     Rewrites follow-up questions into standalone queries.
 
-    Uses the same LLM backend as the chat service but with a lightweight
-    call (low max_tokens, temperature=0) to minimise latency.
-
-    Designed to be a no-op when there is no prior conversation history,
-    so it is safe to use on every request.
+    Uses the same LLM backend as the chat service (via service registry)
+    with a lightweight call (low max_tokens, temperature=0) to minimise
+    latency.
     """
-
-    def __init__(self):
-        self._llm_client = None  # Lazy – set on first use via _get_client()
 
     # ------------------------------------------------------------------
     # Public API
@@ -74,27 +76,14 @@ class QueryRewriterService:
         """
         Return a standalone version of *question* given *conversation_history*.
 
-        Args:
-            question:             The current user question (may be a follow-up).
-            conversation_history: List of {"role": ..., "content": ...} dicts,
-                                  oldest first.
-
-        Returns:
-            A rewritten, self-contained question string.  Falls back to the
-            original question on any error so retrieval is never blocked.
+        Falls back to the original question on any error so retrieval
+        is never blocked.
         """
-        # No history → nothing to resolve → return as-is
         if not conversation_history:
             return question
 
-        # Only rewrite when there are actual prior turns
         prior_turns = [t for t in conversation_history if t.get("content")]
         if not prior_turns:
-            return question
-
-        # Quick heuristic: skip rewrite if no anaphora/reference words
-        if not self._needs_rewrite(question):
-            logger.debug("QueryRewriter: no anaphora detected, skipping rewrite")
             return question
 
         try:
@@ -108,7 +97,6 @@ class QueryRewriterService:
                 )
                 return rewritten
         except Exception as exc:
-            # Rewriter errors must NEVER break retrieval
             logger.warning("QueryRewriter failed (%s), using original query", exc)
 
         return question
@@ -117,53 +105,30 @@ class QueryRewriterService:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    _ANAPHORA = {
-        "it", "its", "they", "them", "their", "those", "these",
-        "that", "this", "he", "she", "his", "her", "there",
-        "which", "such", "the same", "the above", "aforementioned",
-        "the previous", "the latter", "the former",
-        # domain-specific shortcuts
-        "3 people", "2 people", "those people", "those authors",
-        "those documents", "that policy", "that procedure",
-    }
-
-    def _needs_rewrite(self, question: str) -> bool:
-        """Cheap heuristic: does the question contain any anaphoric token?"""
-        lower = question.lower()
-        tokens = set(lower.split())
-        # word-level overlap
-        if tokens & self._ANAPHORA:
-            return True
-        # phrase-level
-        return any(phrase in lower for phrase in self._ANAPHORA if " " in phrase)
-
     def _format_history(self, turns: List[Dict]) -> str:
         """Format the last N turns for the prompt."""
-        # Keep last 6 turns (3 exchanges) to stay under token budget
         recent = turns[-6:]
         lines = []
         for t in recent:
             role = t.get("role", "user").capitalize()
-            content = t.get("content", "")[:400]  # truncate long turns
+            content = t.get("content", "")[:400]
             lines.append(f"{role}: {content}")
         return "\n".join(lines)
 
     async def _call_llm(self, question: str, history: List[Dict]) -> str:
         """Call the LLM with a lightweight rewrite prompt."""
         from backend.config import settings
-        from openai import AsyncOpenAI
 
-        client = await self._get_client(settings)
+        llm_service = get_service("llm")
+        if llm_service is None:
+            return question
+
+        client, provider = llm_service._get_active_client()
+        model = llm_service._get_model_name(provider)
 
         prompt_user = _REWRITE_USER_TMPL.format(
             history=self._format_history(history),
             question=question,
-        )
-
-        model = (
-            settings.VLLM_MODEL_NAME
-            if settings.LLM_PROVIDER == "vllm"
-            else settings.OLLAMA_MODEL
         )
 
         response = await client.chat.completions.create(
@@ -172,30 +137,8 @@ class QueryRewriterService:
                 {"role": "system", "content": _REWRITE_SYSTEM},
                 {"role": "user", "content": prompt_user},
             ],
-            temperature=0.0,   # deterministic
-            max_tokens=120,    # short output – just the rewritten question
+            temperature=0.0,
+            max_tokens=120,
         )
 
         return response.choices[0].message.content or question
-
-    async def _get_client(self, settings) -> "AsyncOpenAI":  # type: ignore[name-defined]
-        """Lazy-initialise a thin AsyncOpenAI client (reuses provider config)."""
-        if self._llm_client is not None:
-            return self._llm_client
-
-        from openai import AsyncOpenAI
-
-        if settings.LLM_PROVIDER == "vllm":
-            self._llm_client = AsyncOpenAI(
-                base_url=settings.VLLM_BASE_URL,
-                api_key=settings.VLLM_API_KEY,
-                timeout=10,  # rewrite must be fast
-            )
-        else:
-            self._llm_client = AsyncOpenAI(
-                base_url=settings.OLLAMA_BASE_URL,
-                api_key="ollama",
-                timeout=10,
-            )
-
-        return self._llm_client

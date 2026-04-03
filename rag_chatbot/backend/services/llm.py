@@ -345,25 +345,13 @@ class LLMService:
     
     def _get_generation_params(self, provider: str) -> Dict[str, Any]:
         """Get generation parameters based on provider."""
-        params = {
+        return {
             "temperature": settings.LLM_TEMPERATURE,
             "max_tokens": settings.LLM_MAX_TOKENS,
             "top_p": settings.LLM_TOP_P,
+            "frequency_penalty": settings.LLM_FREQUENCY_PENALTY,
+            "presence_penalty": settings.LLM_PRESENCE_PENALTY,
         }
-        
-        # vLLM supports additional parameters
-        if provider == "vllm":
-            params.update({
-                "frequency_penalty": settings.LLM_FREQUENCY_PENALTY,
-                "presence_penalty": settings.LLM_PRESENCE_PENALTY,
-            })
-        else:
-            params.update({
-                "frequency_penalty": settings.LLM_FREQUENCY_PENALTY,
-                "presence_penalty": settings.LLM_PRESENCE_PENALTY,
-            })
-        
-        return params
     
     async def generate(
         self,
@@ -570,12 +558,18 @@ class LLMService:
         system = system_prompt or SYSTEM_PROMPT
         messages.append({"role": "system", "content": system})
         
-        # Add conversation history (if any)
+        # Add conversation history (if any).
+        # Only include last 3 exchanges (6 messages) to limit token usage.
+        # Truncate assistant responses to avoid bloating the prompt with
+        # previous context blocks and source citations.
         if conversation_history:
-            for turn in conversation_history[-6:]:  # Limit to last 3 exchanges
+            for turn in conversation_history[-6:]:
+                content = turn["content"]
+                if turn["role"] == "assistant" and len(content) > 300:
+                    content = content[:300] + "..."
                 messages.append({
                     "role": turn["role"],
-                    "content": turn["content"]
+                    "content": content,
                 })
         
         # User message with context

@@ -5,12 +5,16 @@ Stores chunk embeddings in Qdrant and provides semantic + keyword search.
 
 Design decisions:
   - Qdrant as the single vector DB (production-grade, rich filtering).
-  - BM25 keyword search built on top of scrolled corpus for hybrid retrieval.
+  - BM25 keyword index is built once and cached in memory, rebuilt only
+    when documents are added or deleted (not on every query).
   - Cosine distance for similarity (matches BGE normalized embeddings).
+  - All Qdrant calls are offloaded to threads via asyncio.to_thread()
+    so the FastAPI event loop is never blocked.
 """
+import asyncio
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from backend.config import settings
@@ -19,37 +23,74 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# BM25 keyword search helper
+# Cached BM25 Index
 # ---------------------------------------------------------------------------
 
-def _bm25_search(
-    ids: List[str],
-    docs: List[str],
-    metas: List[Dict[str, Any]],
-    query: str,
-    top_k: int,
-) -> List[Dict[str, Any]]:
-    """Run BM25 keyword scoring over an in-memory corpus."""
-    try:
-        from rank_bm25 import BM25Okapi
-    except ImportError:
-        logger.warning("rank_bm25 not installed — keyword search disabled")
-        return []
+class _BM25Index:
+    """
+    In-memory BM25 index that is built once and reused across queries.
 
-    if not docs:
-        return []
+    Rebuilt only when documents change (add/delete), not on every search.
+    This avoids the O(N) scroll + tokenize cost on each keyword query.
+    """
 
-    tokenised = [doc.lower().split() for doc in docs]
-    bm25 = BM25Okapi(tokenised)
-    scores = bm25.get_scores(query.lower().split())
+    def __init__(self):
+        self._bm25 = None
+        self._ids: List[str] = []
+        self._docs: List[str] = []
+        self._metas: List[Dict[str, Any]] = []
+        self._dirty = True  # needs rebuild
 
-    top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
+    def mark_dirty(self):
+        """Mark index as stale — will be rebuilt on next search."""
+        self._dirty = True
 
-    return [
-        {"id": ids[idx], "content": docs[idx], "metadata": metas[idx], "score": float(scores[idx])}
-        for idx in top_indices
-        if scores[idx] > 0
-    ]
+    @property
+    def is_ready(self) -> bool:
+        return self._bm25 is not None and not self._dirty
+
+    def build(self, ids: List[str], docs: List[str], metas: List[Dict[str, Any]]):
+        """Build/rebuild the BM25 index from a corpus."""
+        try:
+            from rank_bm25 import BM25Okapi
+        except ImportError:
+            logger.warning("rank_bm25 not installed — keyword search disabled")
+            return
+
+        self._ids = ids
+        self._docs = docs
+        self._metas = metas
+
+        if not docs:
+            self._bm25 = None
+            self._dirty = False
+            return
+
+        tokenised = [doc.lower().split() for doc in docs]
+        self._bm25 = BM25Okapi(tokenised)
+        self._dirty = False
+        logger.info("BM25 index built: %d documents", len(docs))
+
+    def search(self, query: str, top_k: int) -> List[Dict[str, Any]]:
+        """Search the cached BM25 index. Returns empty list if not ready."""
+        if self._bm25 is None or not self._ids:
+            return []
+
+        scores = self._bm25.get_scores(query.lower().split())
+        top_indices = sorted(
+            range(len(scores)), key=lambda i: scores[i], reverse=True
+        )[:top_k]
+
+        return [
+            {
+                "id": self._ids[idx],
+                "content": self._docs[idx],
+                "metadata": self._metas[idx],
+                "score": float(scores[idx]),
+            }
+            for idx in top_indices
+            if scores[idx] > 0
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -58,43 +99,84 @@ def _bm25_search(
 
 class VectorStoreService:
     """
-    Qdrant-backed vector store with semantic + BM25 keyword search.
+    Qdrant-backed vector store with semantic + cached BM25 keyword search.
 
-    Initialized once at startup via the service registry.
+    All sync Qdrant calls are wrapped in asyncio.to_thread() to avoid
+    blocking the event loop.
     """
 
     def __init__(self):
         self.client = None
+        self._bm25_index = _BM25Index()
 
     async def initialize(self):
         from qdrant_client import QdrantClient
         from qdrant_client.models import Distance, VectorParams
 
-        if settings.QDRANT_API_KEY:
-            self.client = QdrantClient(
-                host=settings.QDRANT_HOST,
-                port=settings.QDRANT_PORT,
-                api_key=settings.QDRANT_API_KEY,
-                https=True,
-            )
-        else:
-            self.client = QdrantClient(
-                host=settings.QDRANT_HOST,
-                port=settings.QDRANT_PORT,
-            )
+        def _init_sync():
+            if settings.QDRANT_API_KEY:
+                client = QdrantClient(
+                    host=settings.QDRANT_HOST,
+                    port=settings.QDRANT_PORT,
+                    api_key=settings.QDRANT_API_KEY,
+                    https=True,
+                )
+            else:
+                client = QdrantClient(
+                    host=settings.QDRANT_HOST,
+                    port=settings.QDRANT_PORT,
+                )
 
-        collections = [c.name for c in self.client.get_collections().collections]
-        if settings.COLLECTION_NAME not in collections:
-            self.client.create_collection(
-                collection_name=settings.COLLECTION_NAME,
-                vectors_config=VectorParams(
-                    size=settings.EMBEDDING_DIMENSION,
-                    distance=Distance.COSINE,
-                ),
-            )
-            logger.info("Created Qdrant collection: %s", settings.COLLECTION_NAME)
+            collections = [c.name for c in client.get_collections().collections]
+            if settings.COLLECTION_NAME not in collections:
+                client.create_collection(
+                    collection_name=settings.COLLECTION_NAME,
+                    vectors_config=VectorParams(
+                        size=settings.EMBEDDING_DIMENSION,
+                        distance=Distance.COSINE,
+                    ),
+                )
+                logger.info("Created Qdrant collection: %s", settings.COLLECTION_NAME)
+            return client
 
+        self.client = await asyncio.to_thread(_init_sync)
         logger.info("Qdrant initialized. Collection: %s", settings.COLLECTION_NAME)
+
+        # Build initial BM25 index from existing data
+        await self._rebuild_bm25_index()
+
+    # --- BM25 index management ---
+
+    async def _rebuild_bm25_index(self):
+        """Scroll all documents from Qdrant and rebuild the BM25 index."""
+        def _scroll_and_build():
+            all_records = []
+            offset = None
+            while True:
+                records, next_offset = self.client.scroll(
+                    collection_name=settings.COLLECTION_NAME,
+                    limit=1000,
+                    with_payload=True,
+                    offset=offset,
+                )
+                all_records.extend(records)
+                if next_offset is None:
+                    break
+                offset = next_offset
+
+            if not all_records:
+                self._bm25_index.build([], [], [])
+                return
+
+            ids = [str(r.id) for r in all_records]
+            docs = [r.payload.get("content", "") for r in all_records]
+            metas = [
+                {k: v for k, v in r.payload.items() if k != "content"}
+                for r in all_records
+            ]
+            self._bm25_index.build(ids, docs, metas)
+
+        await asyncio.to_thread(_scroll_and_build)
 
     # --- write ---
 
@@ -109,7 +191,7 @@ class VectorStoreService:
             payload = {
                 **chunk["metadata"],
                 "content": chunk["content"],
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
             }
             points.append(PointStruct(
                 id=str(uuid.uuid4()),
@@ -117,14 +199,19 @@ class VectorStoreService:
                 payload=payload,
             ))
 
-        batch_size = 100
-        for i in range(0, len(points), batch_size):
-            self.client.upsert(
-                collection_name=settings.COLLECTION_NAME,
-                points=points[i : i + batch_size],
-            )
+        def _upsert_sync():
+            batch_size = 100
+            for i in range(0, len(points), batch_size):
+                self.client.upsert(
+                    collection_name=settings.COLLECTION_NAME,
+                    points=points[i : i + batch_size],
+                )
 
+        await asyncio.to_thread(_upsert_sync)
         logger.info("Added %d chunks to Qdrant", len(chunks))
+
+        # Rebuild BM25 index to include new data
+        await self._rebuild_bm25_index()
 
     # --- semantic search ---
 
@@ -134,13 +221,18 @@ class VectorStoreService:
         top_k: int = 10,
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        results = self.client.search(
-            collection_name=settings.COLLECTION_NAME,
-            query_vector=query_embedding,
-            limit=top_k,
-            query_filter=self._build_filter(filters),
-            with_payload=True,
-        )
+        qf = self._build_filter(filters)
+
+        def _search_sync():
+            return self.client.search(
+                collection_name=settings.COLLECTION_NAME,
+                query_vector=query_embedding,
+                limit=top_k,
+                query_filter=qf,
+                with_payload=True,
+            )
+
+        results = await asyncio.to_thread(_search_sync)
 
         return [
             {
@@ -152,7 +244,7 @@ class VectorStoreService:
             for r in results
         ]
 
-    # --- keyword search (BM25 over scrolled corpus) ---
+    # --- keyword search (cached BM25) ---
 
     async def keyword_search(
         self,
@@ -160,21 +252,12 @@ class VectorStoreService:
         top_k: int = 10,
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        records, _ = self.client.scroll(
-            collection_name=settings.COLLECTION_NAME,
-            scroll_filter=self._build_filter(filters),
-            limit=10_000,
-            with_payload=True,
-        )
+        # Rebuild if index is stale (e.g. after external changes)
+        if not self._bm25_index.is_ready:
+            await self._rebuild_bm25_index()
 
-        if not records:
-            return []
-
-        ids = [str(r.id) for r in records]
-        docs = [r.payload.get("content", "") for r in records]
-        metas = [{k: v for k, v in r.payload.items() if k != "content"} for r in records]
-
-        return _bm25_search(ids, docs, metas, query, top_k)
+        # BM25 search is CPU-bound, offload to thread
+        return await asyncio.to_thread(self._bm25_index.search, query, top_k)
 
     # --- delete ---
 
@@ -182,13 +265,21 @@ class VectorStoreService:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
 
         try:
-            self.client.delete(
-                collection_name=settings.COLLECTION_NAME,
-                points_selector=Filter(must=[
-                    FieldCondition(key="document_id", match=MatchValue(value=document_id)),
-                ]),
-            )
+            f = Filter(must=[
+                FieldCondition(key="document_id", match=MatchValue(value=document_id)),
+            ])
+
+            def _delete_sync():
+                self.client.delete(
+                    collection_name=settings.COLLECTION_NAME,
+                    points_selector=f,
+                )
+
+            await asyncio.to_thread(_delete_sync)
             logger.info("Deleted chunks for document %s", document_id)
+
+            # Rebuild BM25 index after deletion
+            await self._rebuild_bm25_index()
             return True
         except Exception as e:
             logger.error("Error deleting document %s: %s", document_id, e)
@@ -197,11 +288,24 @@ class VectorStoreService:
     # --- list / get ---
 
     async def list_documents(self, skip: int = 0, limit: int = 20, **filters) -> List[Dict[str, Any]]:
-        records, _ = self.client.scroll(
-            collection_name=settings.COLLECTION_NAME,
-            limit=10_000,
-            with_payload=True,
-        )
+        def _scroll_sync():
+            all_records = []
+            offset = None
+            while True:
+                records, next_offset = self.client.scroll(
+                    collection_name=settings.COLLECTION_NAME,
+                    limit=1000,
+                    with_payload=["document_id", "filename", "file_type",
+                                  "file_size", "created_at", "department", "tags"],
+                    offset=offset,
+                )
+                all_records.extend(records)
+                if next_offset is None:
+                    break
+                offset = next_offset
+            return all_records
+
+        records = await asyncio.to_thread(_scroll_sync)
 
         documents: Dict[str, Dict[str, Any]] = {}
         for point in records:
@@ -227,14 +331,20 @@ class VectorStoreService:
     async def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-        records, _ = self.client.scroll(
-            collection_name=settings.COLLECTION_NAME,
-            scroll_filter=Filter(must=[
-                FieldCondition(key="document_id", match=MatchValue(value=document_id)),
-            ]),
-            limit=10_000,
-            with_payload=True,
-        )
+        f = Filter(must=[
+            FieldCondition(key="document_id", match=MatchValue(value=document_id)),
+        ])
+
+        def _scroll_sync():
+            records, _ = self.client.scroll(
+                collection_name=settings.COLLECTION_NAME,
+                scroll_filter=f,
+                limit=10_000,
+                with_payload=True,
+            )
+            return records
+
+        records = await asyncio.to_thread(_scroll_sync)
 
         if not records:
             return None
@@ -256,7 +366,9 @@ class VectorStoreService:
 
     async def health_check(self) -> bool:
         try:
-            self.client.get_collection(settings.COLLECTION_NAME)
+            await asyncio.to_thread(
+                self.client.get_collection, settings.COLLECTION_NAME
+            )
             return True
         except Exception:
             return False

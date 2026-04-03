@@ -6,7 +6,32 @@
 ---
 
 pytest tests/test_step1_parsing.py -v -s -k inspect > tests/step1_parsing_output.txt 2>&1
-
+backend/
+  ├── api/
+  │   ├── main.py              ← FastAPI app + startup
+  │   └── routes/
+  │       ├── chat.py           ← Chat endpoint + streaming
+  │       ├── documents.py      ← Upload/delete documents
+  │       └── health.py         ← Health check
+  ├── config/
+  │   └── settings.py           ← Pydantic settings
+  ├── evaluation/
+  │   └── comprehensive_rag_metrics.py  ← Dùng bởi scripts + tests
+  └── services/
+      ├── __init__.py            ← Service registry
+      ├── cache.py               ← Redis cache (optional)
+      ├── conversation.py        ← Multi-turn history
+      ├── document_parser.py     ← Step 1: Parse PDF/DOCX/TXT
+      ├── document_preprocessor.py ← Step 2: Clean + merge
+      ├── section_chunker.py     ← Step 3: Section-aware chunking
+      ├── table_extractor.py     ← Step 3b: Table → text
+      ├── embeddings.py          ← Step 4: BGE embedding
+      ├── vector_store.py        ← Step 5: Qdrant + cached BM25
+      ├── ingestion.py           ← Orchestrate steps 1-5
+      ├── query_rewriter.py      ← Multi-turn query rewrite
+      ├── reranker.py            ← Cross-encoder reranking
+      ├── retrieval.py           ← Search pipeline
+      └── llm.py                 ← LLM generation + circuit breaker
 
 ## Build Progress
 

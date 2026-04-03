@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field
 
 from backend.config import settings
 from backend.services import get_service
-from backend.services.conversation import ConversationManager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -66,12 +65,12 @@ async def chat(request: ChatRequest):
             logger.info("Cache hit for: %s", request.question[:50])
             return cached
 
-    # Conversation
-    conversation_manager = ConversationManager()
+    # Conversation — use singleton from service registry
+    conversation_manager = get_service("conversation")
     conversation_id = request.conversation_id or conversation_manager.create_conversation()
-    conversation_history = conversation_manager.get_history(conversation_id)
+    conversation_history = conversation_manager.get_history(conversation_id) or []
 
-    # Retrieve
+    # Retrieve (pass history so query rewriter can resolve follow-ups)
     retrieved_chunks = await retrieval_service.retrieve(
         query=request.question,
         filters=request.filters,
@@ -142,7 +141,7 @@ async def chat(request: ChatRequest):
 
 @router.get("/chat/conversations/{conversation_id}")
 async def get_conversation(conversation_id: str):
-    conversation_manager = ConversationManager()
+    conversation_manager = get_service("conversation")
     history = conversation_manager.get_history(conversation_id)
     if history is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -151,7 +150,7 @@ async def get_conversation(conversation_id: str):
 
 @router.delete("/chat/conversations/{conversation_id}")
 async def delete_conversation(conversation_id: str):
-    conversation_manager = ConversationManager()
+    conversation_manager = get_service("conversation")
     if not conversation_manager.delete_conversation(conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "success", "message": "Conversation deleted"}
@@ -168,7 +167,7 @@ async def _stream_response(
     conversation_history: List[dict],
     conversation_id: str,
     retrieved_chunks: List[dict],
-    conversation_manager: ConversationManager,
+    conversation_manager,
 ):
     """SSE generator for streaming response."""
     # Send sources first

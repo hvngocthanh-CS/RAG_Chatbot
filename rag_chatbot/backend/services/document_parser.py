@@ -96,7 +96,7 @@ _NUMBERED_HEADING_RE = re.compile(r"^\d+(\.\d+)*\.?\s+\S")
 
 
 def _is_heading(text: str) -> bool:
-    """Heuristic: short, ALL-CAPS, numbered section, or short without ending punct."""
+    """Heuristic: short ALL-CAPS text, or numbered section headers."""
     text = text.strip()
     if not text or len(text) > 150:
         return False
@@ -106,8 +106,9 @@ def _is_heading(text: str) -> bool:
     # a heading merged with body text, not a real heading.
     if _NUMBERED_HEADING_RE.match(text) and len(text) < 100:
         return True
-    if len(text) < 80 and not text.endswith((".", ":", ";", "?", ",")):
-        return True
+    # Removed: the old "short text without ending punctuation" rule
+    # had too many false positives (bullet items, short phrases,
+    # table captions, etc. were all misclassified as headings).
     return False
 
 
