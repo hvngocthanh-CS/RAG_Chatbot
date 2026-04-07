@@ -63,10 +63,12 @@ class Settings(BaseSettings):
     SECTION_MAX_CHUNK_TOKENS: int = 600
     SECTION_MIN_CHUNK_TOKENS: int = 80
     SECTION_OVERLAP_SENTENCES: int = 2
+    SECTION_SEMANTIC_LOOK_BACK: int = 3
+    SECTION_SEMANTIC_MIN_SCORE: float = 0.15
 
     # --- Retrieval ---
     TOP_K_RETRIEVAL: int = 40
-    TOP_K_RERANK: int = 6
+    TOP_K_RERANK: int = 10
     USE_RERANKER: bool = True
     RERANKER_MODEL: str = "BAAI/bge-reranker-base"
     RERANKER_DEVICE: Literal["cpu", "cuda"] = "cpu"

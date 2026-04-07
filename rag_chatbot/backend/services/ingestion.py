@@ -39,6 +39,8 @@ class DocumentIngestionService:
             max_chunk_tokens=settings.SECTION_MAX_CHUNK_TOKENS,
             min_chunk_tokens=settings.SECTION_MIN_CHUNK_TOKENS,
             overlap_sentences=settings.SECTION_OVERLAP_SENTENCES,
+            semantic_look_back=settings.SECTION_SEMANTIC_LOOK_BACK,
+            semantic_min_score=settings.SECTION_SEMANTIC_MIN_SCORE,
         )
         self.table_extractor = TableExtractor()
 
@@ -75,7 +77,11 @@ class DocumentIngestionService:
             # Step 3: Extract tables
             tables = self.table_extractor.extract_tables(parsed)
 
-            # Step 4: Chunk text content (section-aware)
+            # Step 4: Chunk text content (section-aware + semantic embedding)
+            embedding_model = self.embedding_service.model
+            if embedding_model is not None:
+                self.chunker.set_embedding_model(embedding_model)
+
             text_block_dicts = [b.to_dict() for b in parsed.text_blocks]
             text_chunks = self.chunker.chunk_text(text_block_dicts, metadata)
 

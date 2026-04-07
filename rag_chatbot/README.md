@@ -2,6 +2,11 @@
 
 Production-ready RAG (Retrieval-Augmented Generation) chatbot system for Windows using **Ollama** for local LLM inference.
 
+Thêm data vào Qdrant
+python scripts/ingest_documents.py C:\Users\thanhhvn\Project\RAG_Chatbot\data
+
+Server run: uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
+
 ## Features
 
 - **Ollama Integration**: Native Windows LLM inference with GPU support

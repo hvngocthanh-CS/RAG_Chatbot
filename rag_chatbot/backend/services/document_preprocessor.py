@@ -321,8 +321,26 @@ class DocumentPreprocessor:
         "As", "It", "In", "A", "An", "For", "To", "At", "By", "On",
         "Each", "Every", "Any", "Some", "No", "Not", "During", "After",
         "Before", "When", "Where", "While", "Since", "From", "With",
-        "Standard", "Employees", "Below", "Dr.",
+        "Standard", "Employees", "Below", "Dr.", "Currently",
+        "Data", "Under", "Both", "Although", "Despite", "Given",
+        "Based", "Using", "Following", "According",
     })
+
+    # Pattern C: heading text followed by a timestamp, number, or data marker
+    # e.g. "1.1 Incident Timeline 08:00 UTC ..."
+    _TIMESTAMP_BODY_RE = re.compile(
+        r"^(\d+(?:\.\d+)*\.?\s+.{3,80}?)\s+"
+        r"(\d{1,2}[:.]\d{2}\b.*|"             # timestamps: 08:00, 10.15
+        r"\d{4}[-/]\d{2}[-/]\d{2}\b.*|"       # dates: 2025-11-28
+        r"(?:January|February|March|April|May|June|July|August|September|October|November|December)\s.*|"
+        r"Q[1-4]\s\d{4}\b.*|"                 # Q4 2025
+        r"Phase\s\d\b.*|"                     # Phase 1
+        r"Step\s\d\b.*|"                      # Step 1
+        r"Year\s\d\b.*|"                      # Year 1
+        r"Alert\s.*|"                         # Alert fires...
+        r"Scenario\s\d\b.*"                   # Scenario 1
+        r")$"
+    )
 
     _NUMBERED_START_RE = re.compile(r"^(\d+(?:\.\d+)*\.?\s+)")
 
@@ -338,6 +356,15 @@ class DocumentPreprocessor:
 
         Returns list of (text, block_type) tuples, or None if no split found.
         """
+        # --- Pattern C: heading + timestamp/data body ---
+        # "1.1 Incident Timeline 08:00 UTC (15:00 Vietnam time) ..."
+        m_ts = self._TIMESTAMP_BODY_RE.match(text)
+        if m_ts:
+            return [
+                (m_ts.group(1).strip(), "heading"),
+                (m_ts.group(2).strip(), "paragraph"),
+            ]
+
         # --- Pattern B: heading + embedded sub-heading ---
         # "2. Code Quality Standards 2.1 Pull Request and Code Review Requirements"
         m_sub = self._EMBEDDED_SUBHEADING_RE.match(text)
@@ -372,19 +399,27 @@ class DocumentPreprocessor:
             word = words[i]
             clean_word = word.rstrip(".,;:!?()")
 
-            if clean_word in self._BODY_START_WORDS and i >= 1:
-                heading = prefix + " ".join(words[:i])
-                body = " ".join(words[i:])
-                return [(heading.strip(), "heading"), (body.strip(), "paragraph")]
+            if clean_word in self._BODY_START_WORDS and i >= 2:
+                body_text = " ".join(words[i:])
+                if len(body_text) > 60:
+                    heading = prefix + " ".join(words[:i])
+                    # If heading ends with a dangling preposition/article,
+                    # move it to the body (e.g. "... Meltdown On" → "On November...")
+                    h_words = heading.rsplit(None, 1)
+                    if len(h_words) == 2 and h_words[1].lower() in title_joiners | {"on", "at", "by", "in", "from", "with"}:
+                        heading = h_words[0]
+                        body_text = h_words[1] + " " + body_text
+                    return [(heading.strip(), "heading"), (body_text.strip(), "paragraph")]
 
             if (
                 word[0].islower()
                 and word not in title_joiners
                 and i >= 2
             ):
-                heading = prefix + " ".join(words[:i])
-                body = " ".join(words[i:])
-                return [(heading.strip(), "heading"), (body.strip(), "paragraph")]
+                body_text = " ".join(words[i:])
+                if len(body_text) > 60:
+                    heading = prefix + " ".join(words[:i])
+                    return [(heading.strip(), "heading"), (body_text.strip(), "paragraph")]
 
         return None
 
