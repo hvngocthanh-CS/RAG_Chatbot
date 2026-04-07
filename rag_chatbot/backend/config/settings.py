@@ -27,17 +27,17 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
     OLLAMA_MODEL: str = "llama3.2"
     LLM_TEMPERATURE: float = 0.0
-    LLM_MAX_TOKENS: int = 2048
+    LLM_MAX_TOKENS: int = 1024
     LLM_TOP_P: float = 0.95
     LLM_PRESENCE_PENALTY: float = 0.2
     LLM_FREQUENCY_PENALTY: float = 0.3
 
     # --- Resilience ---
-    REQUEST_TIMEOUT: int = 120
+    REQUEST_TIMEOUT: int = 300
     CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
     CIRCUIT_BREAKER_RECOVERY_TIMEOUT: int = 30
     RETRY_ENABLED: bool = True
-    RETRY_MAX_ATTEMPTS: int = 3
+    RETRY_MAX_ATTEMPTS: int = 2
     RETRY_INITIAL_DELAY: float = 1.0
     RETRY_MAX_DELAY: float = 10.0
     RETRY_EXPONENTIAL_BASE: float = 2.0
@@ -68,7 +68,7 @@ class Settings(BaseSettings):
 
     # --- Retrieval ---
     TOP_K_RETRIEVAL: int = 40
-    TOP_K_RERANK: int = 10
+    TOP_K_RERANK: int = 5
     USE_RERANKER: bool = True
     RERANKER_MODEL: str = "BAAI/bge-reranker-base"
     RERANKER_DEVICE: Literal["cpu", "cuda"] = "cpu"
