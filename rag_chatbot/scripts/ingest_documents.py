@@ -36,19 +36,17 @@ async def ingest_file(
 ):
     """Ingest a single file."""
     import uuid
-    
+
     file_path = Path(file_path)
-    
+
     if not file_path.exists():
-        logger.error(f"File not found: {file_path}")
+        logger.error("File not found: %s", file_path)
         return False
-    
-    # Check extension
+
     if file_path.suffix.lower() not in settings.SUPPORTED_EXTENSIONS:
-        logger.warning(f"Unsupported file type: {file_path.suffix}")
+        logger.warning("Unsupported file type: %s", file_path.suffix)
         return False
-    
-    # Generate metadata
+
     document_id = str(uuid.uuid4())
     metadata = {
         "document_id": document_id,
@@ -58,18 +56,17 @@ async def ingest_file(
         "department": department,
         "tags": tags or []
     }
-    
-    logger.info(f"Ingesting: {file_path.name} (ID: {document_id})")
-    
-    # Process document
+
+    logger.info("Ingesting: %s (ID: %s)", file_path.name, document_id)
+
     ingestion_service = DocumentIngestionService()
     result = await ingestion_service.process_document(str(file_path), metadata)
-    
+
     if result["status"] == "success":
-        logger.info(f"Successfully ingested: {file_path.name} ({result['chunks_count']} chunks)")
+        logger.info("Successfully ingested: %s (%d chunks)", file_path.name, result["chunks_count"])
         return True
     else:
-        logger.error(f"Failed to ingest: {file_path.name}")
+        logger.error("Failed to ingest: %s", file_path.name)
         return False
 
 
@@ -81,65 +78,45 @@ async def ingest_directory(
 ):
     """Ingest all documents in a directory."""
     directory = Path(directory_path)
-    
+
     if not directory.is_dir():
-        logger.error(f"Not a directory: {directory}")
+        logger.error("Not a directory: %s", directory)
         return
-    
-    # Find all supported files
+
     files = []
     for ext in settings.SUPPORTED_EXTENSIONS:
         if recursive:
             files.extend(directory.rglob(f"*{ext}"))
         else:
             files.extend(directory.glob(f"*{ext}"))
-    
-    logger.info(f"Found {len(files)} documents to ingest")
-    
+
+    logger.info("Found %d documents to ingest", len(files))
+
     success_count = 0
     for file_path in files:
         if await ingest_file(str(file_path), department, tags):
             success_count += 1
-    
-    logger.info(f"Ingested {success_count}/{len(files)} documents successfully")
+
+    logger.info("Ingested %d/%d documents successfully", success_count, len(files))
 
 
 async def main():
     parser = argparse.ArgumentParser(
         description="Ingest documents into the RAG system"
     )
-    parser.add_argument(
-        "path",
-        help="Path to file or directory to ingest"
-    )
-    parser.add_argument(
-        "--department",
-        "-d",
-        help="Department tag for the documents"
-    )
-    parser.add_argument(
-        "--tags",
-        "-t",
-        help="Comma-separated tags"
-    )
-    parser.add_argument(
-        "--no-recursive",
-        action="store_true",
-        help="Don't recursively process directories"
-    )
-    
+    parser.add_argument("path", help="Path to file or directory to ingest")
+    parser.add_argument("--department", "-d", help="Department tag for the documents")
+    parser.add_argument("--tags", "-t", help="Comma-separated tags")
+    parser.add_argument("--no-recursive", action="store_true", help="Don't recursively process directories")
+
     args = parser.parse_args()
-    
-    # Parse tags
     tags = [t.strip() for t in args.tags.split(",")] if args.tags else None
-    
-    # Initialize services
+
     logger.info("Initializing services...")
     await initialize_services()
-    
-    # Process path
+
     path = Path(args.path)
-    
+
     if path.is_file():
         await ingest_file(str(path), args.department, tags)
     elif path.is_dir():
@@ -150,7 +127,7 @@ async def main():
             recursive=not args.no_recursive
         )
     else:
-        logger.error(f"Path does not exist: {path}")
+        logger.error("Path does not exist: %s", path)
 
 
 if __name__ == "__main__":

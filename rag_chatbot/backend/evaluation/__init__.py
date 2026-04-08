@@ -1,4 +1,4 @@
-from .comprehensive_rag_metrics import (
+from .metrics import (
     RAGEvaluationResult,
     RetrievalMetrics,
     GenerationMetrics,

@@ -20,12 +20,12 @@ async def initialize_services():
     logger.info("Initializing services...")
 
     # Vector store (Qdrant)
-    from backend.services.vector_store import VectorStoreService
+    from backend.services.vectorstore import VectorStoreService
     _services["vector_store"] = VectorStoreService()
     await _services["vector_store"].initialize()
 
     # Embedding service
-    from backend.services.embeddings import EmbeddingService
+    from backend.services.embedding import EmbeddingService
     _services["embedding"] = EmbeddingService()
     await _services["embedding"].initialize()
 
