@@ -1,377 +1,211 @@
 """
-RAG Evaluation Framework — Industry Standard Metrics.
+RAG Evaluation using RAGAS framework.
 
-Evaluates 3 aspects of a RAG system:
+Evaluates 4 dimensions of a RAG system:
 
-1. RETRIEVAL — Did we find the right chunks?
-   - Hit Rate: Did ANY of the top-k chunks come from the correct page/section?
-   - MRR: How quickly does the first relevant chunk appear?
-   - Context Precision@k: What fraction of retrieved chunks are relevant?
+1. Faithfulness     — Is the answer grounded in the retrieved context?
+2. Answer Relevancy — Does the answer actually address the question?
+3. Context Precision — Are the retrieved chunks relevant and well-ranked?
+4. Context Recall    — Did we retrieve all the context needed to answer?
 
-2. GENERATION — Is the answer good?
-   - Faithfulness: Is every claim in the answer supported by the context?
-   - ROUGE-L: Overlap with reference answer (longest common subsequence)
-   - Answer Correctness: Semantic similarity to expected answer
+Uses Ollama as the evaluator LLM (no OpenAI API key needed).
 
-3. END-TO-END — Does the full pipeline work?
-   - Hallucination Rate: % of test cases where answer contains fabricated info
-   - Citation Accuracy: Do [Source N] references point to real sources?
-
-What you need to run evaluation:
-  - An eval dataset: list of {question, expected_answer, expected_pages}
-  - A running RAG system (Qdrant + Ollama + server)
-
-Reference frameworks: RAGAS, DeepEval, ARES
+Reference: https://docs.ragas.io/
 """
-
-import re
-import math
 import logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
-import numpy as np
-from rouge_score import rouge_scorer
+from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# 1. RETRIEVAL METRICS
+# RAGAS Evaluator
 # ============================================================
 
-class RetrievalMetrics:
+class RAGASEvaluator:
     """
-    Evaluate retrieval quality: did we find the right documents?
+    Evaluates RAG pipeline quality using RAGAS metrics with Ollama.
 
-    These metrics require "ground truth" — you must know which chunks
-    (or at minimum which pages) contain the answer.
+    Usage:
+        evaluator = RAGASEvaluator()
+        results = await evaluator.evaluate(samples)
     """
 
-    @staticmethod
-    def hit_rate(retrieved_chunks: List[Dict], expected_pages: List[int]) -> float:
-        """
-        Hit Rate (= Recall@k binary): Is the answer somewhere in the retrieved chunks?
+    def __init__(self, model_name: Optional[str] = None):
+        self._model_name = model_name or settings.OLLAMA_MODEL
+        self._llm = None
+        self._embeddings = None
 
-        Simplest and most important retrieval metric.
-        1.0 = at least one chunk from the correct page was retrieved.
-        0.0 = none of the retrieved chunks contain the answer.
+    def _get_llm(self):
+        """Lazy-init RAGAS LLM wrapper backed by Ollama."""
+        if self._llm is not None:
+            return self._llm
 
-        This is the metric to optimize first. If hit_rate is low,
-        nothing else matters — the LLM can't answer without context.
-        """
-        if not expected_pages:
-            return 1.0
-        retrieved_pages = {
-            c.get("metadata", {}).get("page_number")
-            for c in retrieved_chunks
-        }
-        return 1.0 if retrieved_pages & set(expected_pages) else 0.0
+        from ragas.llms import LangchainLLMWrapper
+        from langchain_community.chat_models import ChatOllama
 
-    @staticmethod
-    def mrr(retrieved_chunks: List[Dict], expected_pages: List[int]) -> float:
-        """
-        Mean Reciprocal Rank: How quickly does the first relevant chunk appear?
+        base_url = settings.OLLAMA_BASE_URL.replace("/v1", "")
 
-        MRR = 1/rank of the first relevant result.
-        - Relevant at position 1 → MRR = 1.0 (perfect)
-        - Relevant at position 3 → MRR = 0.33
-        - Not found → MRR = 0.0
-
-        Higher is better. Measures ranking quality, not just recall.
-        """
-        expected_set = set(expected_pages)
-        for rank, chunk in enumerate(retrieved_chunks, 1):
-            page = chunk.get("metadata", {}).get("page_number")
-            if page in expected_set:
-                return 1.0 / rank
-        return 0.0
-
-    @staticmethod
-    def precision_at_k(
-        retrieved_chunks: List[Dict], expected_pages: List[int], k: int = 5
-    ) -> float:
-        """
-        Precision@k: What fraction of top-k retrieved chunks are relevant?
-
-        Retrieved 6 chunks, 4 are from correct pages → precision@6 = 0.67
-
-        Low precision means the LLM gets noisy context, which can
-        confuse it and reduce answer quality.
-        """
-        if k == 0 or not expected_pages:
-            return 0.0
-        expected_set = set(expected_pages)
-        relevant = sum(
-            1 for c in retrieved_chunks[:k]
-            if c.get("metadata", {}).get("page_number") in expected_set
+        ollama_llm = ChatOllama(
+            model=self._model_name,
+            base_url=base_url,
         )
-        return relevant / k
+        self._llm = LangchainLLMWrapper(ollama_llm)
+        return self._llm
 
-    @staticmethod
-    def ndcg_at_k(
-        retrieved_chunks: List[Dict], expected_pages: List[int], k: int = 5
-    ) -> float:
+    def _get_embeddings(self):
+        """Get RAGAS embedding wrapper backed by HuggingFace."""
+        if self._embeddings is not None:
+            return self._embeddings
+
+        from ragas.embeddings import HuggingfaceEmbeddings
+
+        self._embeddings = HuggingfaceEmbeddings(
+            model_name=settings.EMBEDDING_MODEL,
+        )
+        return self._embeddings
+
+    async def evaluate(
+        self,
+        samples: List[Dict[str, Any]],
+        metrics: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """
-        NDCG@k (Normalized Discounted Cumulative Gain).
+        Run RAGAS evaluation on a list of samples.
 
-        Like precision, but position-weighted: a relevant chunk at position 1
-        contributes more than one at position 5.
+        Each sample dict must have:
+          - user_input: str              (the question)
+          - response: str                (the generated answer)
+          - retrieved_contexts: List[str] (the retrieved chunks)
+          - reference: str               (expected answer, for recall)
 
-        DCG = sum(rel_i / log2(i+1))
-        NDCG = DCG / ideal_DCG
-        """
-        expected_set = set(expected_pages)
-
-        dcg = 0.0
-        for i, chunk in enumerate(retrieved_chunks[:k], 1):
-            page = chunk.get("metadata", {}).get("page_number")
-            rel = 1.0 if page in expected_set else 0.0
-            dcg += rel / math.log2(i + 1)
-
-        # Ideal DCG: all relevant chunks ranked first
-        idcg = sum(1.0 / math.log2(i + 1) for i in range(1, min(len(expected_pages), k) + 1))
-
-        return dcg / idcg if idcg > 0 else 0.0
-
-
-# ============================================================
-# 2. GENERATION METRICS
-# ============================================================
-
-class GenerationMetrics:
-    """
-    Evaluate answer quality: is the generated answer correct and faithful?
-
-    Two types:
-    - Reference-based (need expected_answer): ROUGE-L, answer correctness
-    - Reference-free (only need context): faithfulness
-    """
-
-    @staticmethod
-    def rouge_l(reference: str, hypothesis: str) -> float:
-        """
-        ROUGE-L: Longest Common Subsequence between reference and generated answer.
-
-        Measures overlap at the word level. Better than BLEU for long answers
-        because it captures sentence-level structure, not just n-grams.
-
-        Range [0, 1]. Typical good score: > 0.4
-        """
-        if not reference or not hypothesis:
-            return 0.0
-        try:
-            scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
-            scores = scorer.score(reference, hypothesis)
-            return scores["rougeL"].fmeasure
-        except Exception as e:
-            logger.warning("ROUGE-L error: %s", e)
-            return 0.0
-
-    @staticmethod
-    def faithfulness(answer: str, context: str) -> float:
-        """
-        Faithfulness: Is the answer grounded in the provided context?
-
-        Splits the answer into claims (sentences), then checks if each
-        claim has supporting evidence in the context using word overlap.
-
-        Score = supported_claims / total_claims
-        Range [0, 1]. Target: > 0.8
-
-        Note: This is a simple word-overlap heuristic. Production systems
-        use LLM-as-a-judge (e.g., RAGAS) for more accurate faithfulness
-        scoring, but that requires an additional LLM call per evaluation.
-        """
-        if not answer or not context:
-            return 0.0
-
-        sentences = [s.strip() for s in re.split(r"[.!?\n]+", answer) if len(s.strip()) > 10]
-        if not sentences:
-            return 1.0
-
-        context_lower = context.lower()
-        context_words = set(context_lower.split())
-
-        supported = 0
-        for sentence in sentences:
-            sent_words = set(sentence.lower().split())
-            # Remove common stop words for more meaningful overlap
-            meaningful = sent_words - {
-                "the", "a", "an", "is", "are", "was", "were", "be", "been",
-                "being", "have", "has", "had", "do", "does", "did", "will",
-                "would", "could", "should", "may", "might", "shall", "can",
-                "to", "of", "in", "for", "on", "with", "at", "by", "from",
-                "as", "into", "through", "during", "before", "after", "and",
-                "but", "or", "nor", "not", "no", "so", "if", "than", "that",
-                "this", "it", "its", "they", "their", "them",
-            }
-            if not meaningful:
-                supported += 1
-                continue
-            overlap = len(meaningful & context_words) / len(meaningful)
-            if overlap >= 0.5:
-                supported += 1
-
-        return supported / len(sentences)
-
-    @staticmethod
-    def answer_correctness(answer: str, expected_answer: str) -> float:
-        """
-        Answer Correctness: Does the answer convey the same information
-        as the expected answer?
-
-        Uses word-level F1 score between answer and expected answer.
-        This captures whether the key facts are present regardless of
-        exact wording.
-
-        Range [0, 1]. Target: > 0.5
-        """
-        if not answer or not expected_answer:
-            return 0.0
-
-        answer_tokens = set(answer.lower().split())
-        expected_tokens = set(expected_answer.lower().split())
-
-        if not answer_tokens or not expected_tokens:
-            return 0.0
-
-        common = answer_tokens & expected_tokens
-        if not common:
-            return 0.0
-
-        precision = len(common) / len(answer_tokens)
-        recall = len(common) / len(expected_tokens)
-        return 2 * precision * recall / (precision + recall)
-
-
-# ============================================================
-# 3. END-TO-END METRICS
-# ============================================================
-
-class EndToEndMetrics:
-    """
-    End-to-end metrics that evaluate the complete pipeline.
-    """
-
-    @staticmethod
-    def hallucination_check(answer: str, context: str) -> bool:
-        """
-        Hallucination Detection: Does the answer contain fabricated numbers?
-
-        Checks if numbers in the answer exist in the context.
-        If >30% of numbers are new (not in context), flags as hallucination.
-
-        Returns True if hallucination detected, False if grounded.
-
-        Note: This only catches numerical hallucinations. For full
-        hallucination detection, use LLM-as-a-judge.
-        """
-        answer_numbers = set(re.findall(r"\d+", answer))
-        if not answer_numbers:
-            return False
-
-        context_numbers = set(re.findall(r"\d+", context))
-        new_numbers = answer_numbers - context_numbers
-
-        return len(new_numbers) > len(answer_numbers) * 0.3
-
-    @staticmethod
-    def citation_accuracy(answer: str, retrieved_chunks: List[Dict]) -> float:
-        """
-        Citation Accuracy: Do the [Source N] references in the answer
-        correspond to actual retrieved sources?
-
-        Checks each [Source N: filename] citation against the retrieved
-        chunk filenames.
-
-        Range [0, 1]. 1.0 = all citations are valid.
-        """
-        citations = re.findall(r"\[Source (\d+):[^\]]*\]", answer)
-        if not citations:
-            return 0.0
-
-        valid = 0
-        for source_num in citations:
-            idx = int(source_num) - 1
-            if 0 <= idx < len(retrieved_chunks):
-                valid += 1
-
-        return valid / len(citations)
-
-    @staticmethod
-    def no_answer_correctness(answer: str, has_answer_in_context: bool) -> float:
-        """
-        No-Answer Correctness: When the context doesn't contain the answer,
-        does the system correctly say "not found" instead of hallucinating?
+        Args:
+            samples: List of evaluation samples.
+            metrics: Which metrics to run. Default: all four.
+                     Options: "faithfulness", "answer_relevancy",
+                              "context_precision", "context_recall"
 
         Returns:
-            1.0 if behavior is correct (answers when should, refuses when should)
-            0.0 if behavior is wrong (hallucinating or refusing valid answers)
+            Dict with summary scores and per-sample details.
         """
-        refusal_patterns = [
-            r"not found", r"not mentioned", r"no information",
-            r"not specified", r"does not (contain|mention|include)",
-            r"cannot (find|determine)", r"no relevant",
-        ]
-        is_refusal = any(
-            re.search(p, answer, re.IGNORECASE) for p in refusal_patterns
+        from ragas import evaluate
+        from ragas.dataset_schema import SingleTurnSample, EvaluationDataset
+        from ragas.run_config import RunConfig
+
+        metric_objects = self._build_metrics(metrics)
+
+        ragas_samples = []
+        for s in samples:
+            ragas_samples.append(SingleTurnSample(
+                user_input=s["user_input"],
+                response=s["response"],
+                retrieved_contexts=s["retrieved_contexts"],
+                reference=s.get("reference", ""),
+            ))
+
+        dataset = EvaluationDataset(samples=ragas_samples)
+
+        run_config = RunConfig(
+            timeout=300,
+            max_retries=3,
         )
 
-        if has_answer_in_context and not is_refusal:
-            return 1.0  # Correctly answered
-        if not has_answer_in_context and is_refusal:
-            return 1.0  # Correctly refused
-        return 0.0
+        logger.info("Running RAGAS evaluation on %d samples...", len(samples))
+
+        result = evaluate(
+            dataset=dataset,
+            metrics=metric_objects,
+            run_config=run_config,
+        )
+
+        return self._format_results(result, samples)
+
+    def _build_metrics(self, metric_names: Optional[List[str]] = None):
+        """Build RAGAS metric instances with Ollama LLM."""
+        from ragas.metrics import (
+            Faithfulness,
+            ResponseRelevancy,
+            LLMContextPrecisionWithoutReference,
+            LLMContextRecallWithoutReference,
+        )
+
+        llm = self._get_llm()
+        embeddings = self._get_embeddings()
+
+        all_metrics = {
+            "faithfulness": Faithfulness(llm=llm),
+            "answer_relevancy": ResponseRelevancy(llm=llm, embeddings=embeddings),
+            "context_precision": LLMContextPrecisionWithoutReference(llm=llm),
+            "context_recall": LLMContextRecallWithoutReference(llm=llm),
+        }
+
+        if metric_names:
+            return [all_metrics[m] for m in metric_names if m in all_metrics]
+        return list(all_metrics.values())
+
+    @staticmethod
+    def _format_results(
+        ragas_result, samples: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Format RAGAS result into a clean dict."""
+        df = ragas_result.to_pandas()
+
+        skip_cols = {"user_input", "response", "retrieved_contexts", "reference"}
+
+        # Per-sample details
+        per_sample = []
+        for i, row in df.iterrows():
+            detail = {
+                "question": samples[i]["user_input"],
+                "answer_preview": samples[i]["response"][:150],
+            }
+            for col in df.columns:
+                if col not in skip_cols:
+                    val = row[col]
+                    detail[col] = round(float(val), 4) if val is not None else None
+            per_sample.append(detail)
+
+        # Aggregate scores
+        summary = {}
+        for col in df.columns:
+            if col not in skip_cols:
+                values = df[col].dropna()
+                if len(values) > 0:
+                    summary[col] = round(float(values.mean()), 4)
+
+        return {
+            "summary": summary,
+            "per_sample": per_sample,
+            "num_samples": len(samples),
+        }
 
 
 # ============================================================
-# EVALUATION RESULT
+# Evaluation Result dataclass
 # ============================================================
 
 @dataclass
 class RAGEvaluationResult:
-    """Complete evaluation result for one question."""
+    """Evaluation result for one question."""
 
-    # Retrieval
-    hit_rate: float
-    mrr: float
-    precision_at_k: float
-    ndcg_at_k: float
+    faithfulness: float = 0.0
+    answer_relevancy: float = 0.0
+    context_precision: float = 0.0
+    context_recall: float = 0.0
 
-    # Generation
-    faithfulness: float
-    rouge_l: float
-    answer_correctness: float
-
-    # End-to-end
-    hallucination_detected: bool
-    citation_accuracy: float
-    no_answer_correct: float
-
-    # Metadata
     question: str = ""
     answer: str = ""
     num_chunks: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "retrieval": {
-                "hit_rate": round(self.hit_rate, 3),
-                "mrr": round(self.mrr, 3),
-                "precision@k": round(self.precision_at_k, 3),
-                "ndcg@k": round(self.ndcg_at_k, 3),
-            },
-            "generation": {
-                "faithfulness": round(self.faithfulness, 3),
-                "rouge_l": round(self.rouge_l, 3),
-                "answer_correctness": round(self.answer_correctness, 3),
-            },
-            "end_to_end": {
-                "hallucination_detected": self.hallucination_detected,
-                "citation_accuracy": round(self.citation_accuracy, 3),
-                "no_answer_correct": round(self.no_answer_correct, 3),
-            },
+            "faithfulness": round(self.faithfulness, 4),
+            "answer_relevancy": round(self.answer_relevancy, 4),
+            "context_precision": round(self.context_precision, 4),
+            "context_recall": round(self.context_recall, 4),
         }
 
     @property
@@ -379,16 +213,15 @@ class RAGEvaluationResult:
         """
         Weighted overall score.
 
-        Weights reflect importance in production:
-        - Retrieval 40%: if you don't find the right chunks, nothing works
-        - Generation 40%: faithfulness is critical for trust
-        - End-to-end 20%: hallucination and citation are safety nets
+        - Faithfulness 30%: answer must be grounded in context
+        - Answer Relevancy 30%: answer must address the question
+        - Context Precision 20%: retrieved chunks should be relevant
+        - Context Recall 20%: must retrieve all needed context
         """
-        retrieval = np.mean([self.hit_rate, self.mrr, self.ndcg_at_k])
-        generation = np.mean([self.faithfulness, self.answer_correctness])
-        e2e = np.mean([
-            0.0 if self.hallucination_detected else 1.0,
-            self.citation_accuracy,
-            self.no_answer_correct,
-        ])
-        return round(0.4 * retrieval + 0.4 * generation + 0.2 * e2e, 3)
+        return round(
+            0.3 * self.faithfulness
+            + 0.3 * self.answer_relevancy
+            + 0.2 * self.context_precision
+            + 0.2 * self.context_recall,
+            4,
+        )

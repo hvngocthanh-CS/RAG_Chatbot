@@ -1,6 +1,22 @@
 version: "3.8"
 
 services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Uncomment below to enable GPU passthrough
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    restart: unless-stopped
+
   qdrant:
     image: qdrant/qdrant:latest
     ports:
@@ -25,9 +41,12 @@ services:
     env_file:
       - ../.env
     environment:
+      - OLLAMA_BASE_URL=http://ollama:11434/v1
       - QDRANT_HOST=qdrant
       - REDIS_HOST=redis
+      - USE_CACHE=true
     depends_on:
+      - ollama
       - qdrant
       - redis
     volumes:
@@ -35,4 +54,5 @@ services:
     restart: unless-stopped
 
 volumes:
+  ollama_data:
   qdrant_data:

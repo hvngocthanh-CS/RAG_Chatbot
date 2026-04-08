@@ -24,3 +24,7 @@ qdrant-client
 
 # LLM client (OpenAI-compatible for vLLM/Ollama)
 openai
+
+# Evaluation (RAGAS)
+ragas
+datasets
