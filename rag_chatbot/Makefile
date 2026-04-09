@@ -1,4 +1,4 @@
-.PHONY: help install setup-gpu start-ollama start-backend test health
+.PHONY: help install setup-gpu start-ollama start-backend test test-unit health evaluate evaluate-quick
 
 # ===========================================
 # RAG Chatbot Makefile
@@ -16,10 +16,13 @@ help:
 	@echo "  make start-backend     - Start FastAPI backend only"
 	@echo ""
 	@echo "Testing:"
-	@echo "  make test              - Run all tests"
-	@echo "  make test-unit         - Run unit tests only"
-	@echo "  make test-integration  - Run integration tests only"
+	@echo "  make test              - Run all unit tests"
+	@echo "  make test-unit         - Alias for make test"
 	@echo "  make health            - Check health endpoints"
+	@echo ""
+	@echo "Evaluation:"
+	@echo "  make evaluate          - Full RAG evaluation (retrieval + RAGAS)"
+	@echo "  make evaluate-quick    - Quick smoke test (5 cases, no RAGAS)"
 	@echo ""
 	@echo "Docker:"
 	@echo "  make docker-build      - Build Docker image"
@@ -62,18 +65,21 @@ health:
 
 # Run all tests
 test:
-	@echo "Running all tests..."
-	pytest tests/ -v --tb=short
-
-# Run unit tests only
-test-unit:
 	@echo "Running unit tests..."
 	pytest tests/unit/ -v --tb=short
 
-# Run integration tests only
-test-integration:
-	@echo "Running integration tests..."
-	pytest tests/integration/ -v --tb=short
+# Alias
+test-unit: test
+
+# Full RAG evaluation (retrieval metrics + RAGAS)
+evaluate:
+	@echo "Running full RAG evaluation..."
+	python -m evaluation.run_evaluation
+
+# Quick smoke test — 5 cases, retrieval metrics only (no LLM judge)
+evaluate-quick:
+	@echo "Running quick RAG smoke test..."
+	python -m evaluation.run_evaluation --limit 5 --no-ragas
 
 # Docker commands
 docker-build:

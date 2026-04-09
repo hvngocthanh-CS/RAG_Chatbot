@@ -1,0 +1,521 @@
+{
+  "name": "techviet_qa_v2",
+  "description": "Comprehensive evaluation dataset for TechViet Solutions document corpus (30 PDFs). Covers 7 difficulty levels and 10 categories across HR, engineering, security, finance, operations, and product domains.",
+  "version": "2.0",
+  "document_corpus": "../../../data/techviet_docs/ (30 PDF documents, located at project root)",
+  "total_test_cases": 50,
+  "category_distribution": {
+    "factual_easy": 8,
+    "table_lookup": 6,
+    "policy_understanding": 5,
+    "multi_hop": 8,
+    "temporal_reasoning": 4,
+    "comparison": 4,
+    "numerical_extraction": 5,
+    "negation_refusal": 5,
+    "ambiguous_paraphrase": 3,
+    "long_context": 2
+  },
+  "test_cases": [
+    {
+      "id": "factual_001",
+      "category": "factual_easy",
+      "difficulty": "easy",
+      "question": "When was TechViet Solutions founded and where is its headquarters?",
+      "expected_answer": "TechViet Solutions was founded in 2018 and is headquartered in District 7, Ho Chi Minh City, Vietnam.",
+      "source_documents": ["01_Employee_Handbook.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "factual_002",
+      "category": "factual_easy",
+      "difficulty": "easy",
+      "question": "What are the standard working hours at TechViet?",
+      "expected_answer": "Standard working hours are Monday through Friday, 8:30 AM to 5:30 PM (ICT), with a one-hour lunch break from 12:00 PM to 1:00 PM. TechViet observes a 40-hour work week.",
+      "source_documents": ["01_Employee_Handbook.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "factual_003",
+      "category": "factual_easy",
+      "difficulty": "easy",
+      "question": "How do I reset my TechViet password?",
+      "expected_answer": "Navigate to https://sso.techviet.vn/reset and enter your company email address (firstname.lastname@techviet.vn). A password reset link will be sent within 5 minutes. The link expires after 1 hour.",
+      "source_documents": ["10_IT_Support_FAQ.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "factual_004",
+      "category": "factual_easy",
+      "difficulty": "easy",
+      "question": "What vector database did TechViet adopt and why?",
+      "expected_answer": "TechViet adopted Qdrant as the primary vector database, as documented in ADR-001. It was chosen to handle production workloads for ChatAssist (~10M vectors), ShopSmart Reco (~5M vectors), and LogiFlow AI (~2M vectors) with low latency.",
+      "source_documents": ["08_Architecture_Decision_Records.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "factual_005",
+      "category": "factual_easy",
+      "difficulty": "easy",
+      "question": "What is the severity and duration of incident INC-2026-0042?",
+      "expected_answer": "INC-2026-0042 was P1 Critical severity with a duration of 2 hours 47 minutes (14:23 to 17:10 ICT, February 18, 2026). It was a complete production database outage affecting the Phoenix Platform.",
+      "source_documents": ["09_Incident_Postmortem_INC0042.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "factual_006",
+      "category": "factual_easy",
+      "difficulty": "easy",
+      "question": "What deployment model does TechViet use for production?",
+      "expected_answer": "TechViet uses the Blue-Green deployment model orchestrated via GitHub Actions and ArgoCD. Deployments are only permitted Monday through Thursday, 10:00 AM to 4:00 PM ICT. Friday deployments require VP Engineering approval.",
+      "source_documents": ["14_Operations_Runbook.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "factual_007",
+      "category": "factual_easy",
+      "difficulty": "easy",
+      "question": "What is the annual learning budget per employee at TechViet?",
+      "expected_answer": "Every employee has a VND 15M (15 million VND) annual learning budget.",
+      "source_documents": ["01_Employee_Handbook.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "factual_008",
+      "category": "factual_easy",
+      "difficulty": "easy",
+      "question": "What is ChatAssist and what technology does it use?",
+      "expected_answer": "ChatAssist is an AI-powered internal knowledge assistant that enables TechViet employees to instantly find information from internal documentation using natural language queries. It uses Retrieval Augmented Generation (RAG) to provide accurate, sourced answers grounded in TechViet's actual documentation.",
+      "source_documents": ["06_ChatAssist_PRD.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "table_001",
+      "category": "table_lookup",
+      "difficulty": "medium",
+      "question": "What is the maximum hotel rate per night for business travel to Singapore?",
+      "expected_answer": "The maximum hotel rate for Singapore is USD 250 per night, up to 4-star rating. Higher rates during major events (F1, etc.) require pre-approval.",
+      "source_documents": ["07_Travel_Expense_Policy.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "table_002",
+      "category": "table_lookup",
+      "difficulty": "medium",
+      "question": "What is the overtime pay rate on public holidays at TechViet?",
+      "expected_answer": "The overtime pay rate on public holidays is 300% of the hourly rate, as mandated by Vietnamese labor law.",
+      "source_documents": ["01_Employee_Handbook.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "table_003",
+      "category": "table_lookup",
+      "difficulty": "medium",
+      "question": "How many GPU servers does TechViet have on-premises and what is their utilization?",
+      "expected_answer": "TechViet has 4 GPU servers (NVIDIA DGX A100), averaging 1.2 years old, at 96% utilization. Each has a replacement cost of $199,000.",
+      "source_documents": ["21_Cloud_Migration_Strategy.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "table_004",
+      "category": "table_lookup",
+      "difficulty": "medium",
+      "question": "What is the daily meal per diem for business travel to the US or Europe?",
+      "expected_answer": "The daily meal per diem for US/Europe/AU is USD 125 total: breakfast $25, lunch $40, dinner $60.",
+      "source_documents": ["07_Travel_Expense_Policy.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "table_005",
+      "category": "table_lookup",
+      "difficulty": "medium",
+      "question": "What is the pass bonus for obtaining an AWS Solutions Architect Associate certification?",
+      "expected_answer": "The pass bonus for AWS Solutions Architect Associate certification is VND 3,000,000. The exam fee is $150 and the estimated study time is 80-100 hours. It is recommended for L2+ Backend and DevOps engineers.",
+      "source_documents": ["17_Career_Development_Catalog.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "table_006",
+      "category": "table_lookup",
+      "difficulty": "medium",
+      "question": "What was the Change Failure Rate in Q1 2026 and how does it compare to the target?",
+      "expected_answer": "The Change Failure Rate in Q1 2026 was 3.8%, which is better than the target of <5%. This represents a 54% year-over-year improvement, attributed to better testing and canary deployments.",
+      "source_documents": ["12_Engineering_AllHands_Minutes.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "policy_001",
+      "category": "policy_understanding",
+      "difficulty": "medium",
+      "question": "What is the remote work policy at TechViet?",
+      "expected_answer": "Employees can work remotely up to 2 days per week, subject to team agreements and manager approval. During remote days, employees must be reachable during core hours (10:00 AM to 4:00 PM ICT) via Slack and Google Meet. Certain roles (office management, hardware IT support, reception) are not eligible. Teams in active client-facing delivery may temporarily require full in-office presence with 2 weeks' notice.",
+      "source_documents": ["01_Employee_Handbook.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "policy_002",
+      "category": "policy_understanding",
+      "difficulty": "medium",
+      "question": "What is the password policy at TechViet?",
+      "expected_answer": "Passwords must include uppercase, lowercase, digit, and special character. Passwords rotate every 90 days, and the last 12 passwords cannot be reused. Accounts lock after 5 consecutive failed attempts and auto-unlock after 30 minutes. MFA is required using hardware key (YubiKey 5) as primary, or TOTP authenticator app as fallback. SMS and phone call MFA are explicitly disabled.",
+      "source_documents": ["02_IT_Security_Policy.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "policy_003",
+      "category": "policy_understanding",
+      "difficulty": "medium",
+      "question": "What are the code review requirements for pull requests?",
+      "expected_answer": "PRs require 2 approvals for main/develop branches and 1 approval for feature branches. First review must be within 4 business hours and final approval within 24 hours. This is documented in the Engineering Standards.",
+      "source_documents": ["04_Engineering_Standards.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "policy_004",
+      "category": "policy_understanding",
+      "difficulty": "medium",
+      "question": "What is the procurement approval process for purchases over 50 million VND?",
+      "expected_answer": "Purchases over VND 50,000,000 (or above $2,000 USD equivalent) require approval from the Department Head plus VP plus CFO. The Procurement Portal at procurement.techviet.vn is used for all purchase requests.",
+      "source_documents": ["20_Procurement_Vendor_Policy.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "policy_005",
+      "category": "policy_understanding",
+      "difficulty": "medium",
+      "question": "What is TechViet's data breach notification timeline under GDPR?",
+      "expected_answer": "TechViet follows a four-phase breach response: Phase 1 Detection and Containment (0-4 hours), Phase 2 Assessment (4-24 hours), Phase 3 Notification (24-72 hours) where regulators, customers, and data subjects are notified using pre-drafted templates, and Phase 4 Remediation and Review (1-30 days).",
+      "source_documents": ["28_Compliance_GDPR_PDPA_Handbook.pdf"],
+      "expected_pages": [4],
+      "has_answer": true
+    },
+    {
+      "id": "multihop_001",
+      "category": "multi_hop",
+      "difficulty": "hard",
+      "question": "The INC-2026-0042 incident involved a developer running a migration against production. What specific engineering standard was later added to prevent this type of issue with large tables?",
+      "expected_answer": "After INC-2026-0042, the engineering standard was updated: all index operations on tables with more than 1 million rows MUST use CREATE INDEX CONCURRENTLY. This was added to the migration review checklist (Action A3 in the postmortem). The incident occurred because a junior developer used CREATE INDEX instead of CREATE INDEX CONCURRENTLY on an 85M-row table.",
+      "source_documents": ["09_Incident_Postmortem_INC0042.pdf", "04_Engineering_Standards.pdf"],
+      "expected_pages": [3, 4],
+      "has_answer": true
+    },
+    {
+      "id": "multihop_002",
+      "category": "multi_hop",
+      "difficulty": "hard",
+      "question": "ChatAssist v2.3 improved retrieval accuracy to 91.2%. What was the OKR target for retrieval accuracy set by the AI team, and did they meet it?",
+      "expected_answer": "The AI & Data Science team's OKR target was >93% retrieval accuracy on the benchmark dataset. ChatAssist v2.3 achieved 91.2%, scoring 0.85 on this key result. So they did not fully meet the target but were close.",
+      "source_documents": ["19_ChatAssist_Release_Notes_v2.3.pdf", "15_OKR_Performance_Q1_2026.pdf"],
+      "expected_pages": [1, 2],
+      "has_answer": true
+    },
+    {
+      "id": "multihop_003",
+      "category": "multi_hop",
+      "difficulty": "hard",
+      "question": "A new engineer just joined TechViet. What mandatory training must they complete in their first week, and what passing score is required for the Information Security module?",
+      "expected_answer": "New engineers must complete mandatory training modules in Week 1 via the TechViet LMS (learn.techviet.vn): Information Security Fundamentals (2 hours, Day 2, 80% passing score on a 20-question quiz), Code of Conduct & Business Ethics (1 hour, Day 2, 100% acknowledgment + 80% quiz), Anti-Harassment Diversity & Inclusion (1.5 hours, Day 3, 80% on scenario-based quiz), and Data Privacy & Compliance.",
+      "source_documents": ["03_Onboarding_Guide.pdf"],
+      "expected_pages": [3],
+      "has_answer": true
+    },
+    {
+      "id": "multihop_004",
+      "category": "multi_hop",
+      "difficulty": "hard",
+      "question": "The Black Friday incident (INC-2025-089) involved a query that performed full table scans. What specific query pattern caused the issue and what was the correct approach?",
+      "expected_answer": "The analytics query in PR #4521 used WHERE DATE_TRUNC('month', created_at) = '2025-11-01' which prevented PostgreSQL from using the btree index on created_at (the function call defeats index usage). The correct approach would have been a range condition: WHERE created_at >= '2025-11-01' AND created_at < '2025-12-01', which the planner can satisfy using the index.",
+      "source_documents": ["25_Incident_Management_Case_Studies.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "multihop_005",
+      "category": "multi_hop",
+      "difficulty": "hard",
+      "question": "The security audit found SQL injection in a legacy admin panel. What was recommended as the medium-term fix, and is this panel mentioned elsewhere in the technology roadmap?",
+      "expected_answer": "The medium-term fix (within 30 days) was complete retirement of the legacy admin panel, replacing it with the new React-based admin dashboard that was deployed to staging in November 2025. The legacy PHP admin panel is listed in the Cloud Migration Strategy as one of 2 applications to be retired during the migration.",
+      "source_documents": ["22_Annual_Security_Audit_Report_2025.pdf", "21_Cloud_Migration_Strategy.pdf"],
+      "expected_pages": [2, 3],
+      "has_answer": true
+    },
+    {
+      "id": "multihop_006",
+      "category": "multi_hop",
+      "difficulty": "hard",
+      "question": "What is the multi-tenancy approach used by ChatAssist, and what alternatives were considered?",
+      "expected_answer": "ChatAssist uses row-level security in PostgreSQL, where every table includes an org_id column and all queries are automatically filtered by the current user's organization. Alternatives considered were schema-per-tenant (rejected due to too many schemas at scale) and database-per-tenant (rejected due to operational overhead and inability to run cross-tenant analytics). For 2026, the roadmap includes enterprise multi-tenancy hardening with dedicated database instances and compute for regulated industries.",
+      "source_documents": ["23_Microservices_Architecture_Guide.pdf", "29_Product_Roadmap_2026.pdf"],
+      "expected_pages": [3, 3],
+      "has_answer": true
+    },
+    {
+      "id": "multihop_007",
+      "category": "multi_hop",
+      "difficulty": "hard",
+      "question": "Why is TechViet migrating to the cloud, and what applications will remain on-premises permanently?",
+      "expected_answer": "The migration is driven by: the data center lease expiring in September 2027 with 340% cost increase, on-premises infrastructure at 87% capacity with peak loads exceeding 95%, and a projected 42% TCO reduction over 5 years. Two applications will remain on-premises permanently: the government integration bridge servers (for connections to Vietnamese government agencies like the taxation e-invoice API, Social Insurance system, and State Bank payment verification) and the physical access control system.",
+      "source_documents": ["21_Cloud_Migration_Strategy.pdf"],
+      "expected_pages": [1, 3],
+      "has_answer": true
+    },
+    {
+      "id": "multihop_008",
+      "category": "multi_hop",
+      "difficulty": "hard",
+      "question": "The data pipeline had a silent corruption incident (INC-2026-003). What was the impact and what quality check was implemented afterward?",
+      "expected_answer": "The INC-2026-003 incident involved faulty deduplication logic that dropped approximately 0.3% of messages during Kafka rebalances, accumulating to 15% data loss for the most affected enterprise customers over December. A billing reconciliation check was implemented that runs hourly, comparing message counts in the billing Gold layer with source-of-truth counts from each microservice. A discrepancy of more than 0.01% triggers an immediate alert.",
+      "source_documents": ["25_Incident_Management_Case_Studies.pdf", "26_Data_Engineering_Pipeline_Manual.pdf"],
+      "expected_pages": [5, 3],
+      "has_answer": true
+    },
+    {
+      "id": "temporal_001",
+      "category": "temporal_reasoning",
+      "difficulty": "hard",
+      "question": "What is the timeline for the cloud migration phases and when is the ChatAssist production migration scheduled?",
+      "expected_answer": "The migration has 4 phases over 18 months: Phase 1 Foundation and Internal Tools (Months 1-3), Phase 2 Application Containerization (Months 3-6), Phase 3 Data Migration (Months 6-12), Phase 4 Production ChatAssist and customer-facing APIs (Months 12-18). Phase 4 cannot begin until all Phase 3 data migrations are complete and have been running stably for at least 30 days.",
+      "source_documents": ["21_Cloud_Migration_Strategy.pdf"],
+      "expected_pages": [4, 5, 6],
+      "has_answer": true
+    },
+    {
+      "id": "temporal_002",
+      "category": "temporal_reasoning",
+      "difficulty": "hard",
+      "question": "When did the TLS certificate expiry incident happen and how long did it take to detect?",
+      "expected_answer": "The TLS certificate for api.chatassist.techviet.vn expired on December 15, 2025 at 00:00 UTC (07:00 Vietnam time). Detection was delayed because TechViet's own monitoring system used the same API endpoint, causing dashboards to go dark. The incident lasted 2 hours and 47 minutes, affecting 23 enterprise customers with SLA agreements.",
+      "source_documents": ["25_Incident_Management_Case_Studies.pdf"],
+      "expected_pages": [3, 4],
+      "has_answer": true
+    },
+    {
+      "id": "temporal_003",
+      "category": "temporal_reasoning",
+      "difficulty": "hard",
+      "question": "What is the RAG 2.0 development timeline in the 2026 product roadmap?",
+      "expected_answer": "The RAG 2.0 timeline is: Q1 2026 - cross-encoder re-ranking (backend implementation and A/B test), Q2 2026 - table-aware retrieval (depends on improved document parsing pipeline), Q3 2026 - domain adaptation framework (depends on GPU cluster expansion in the cloud migration). Success metrics include retrieval precision >88% and 'answer not found' rate <10% (currently 18%).",
+      "source_documents": ["29_Product_Roadmap_2026.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "temporal_004",
+      "category": "temporal_reasoning",
+      "difficulty": "hard",
+      "question": "When does the expense report need to be submitted after a business trip, and what happens if it's late?",
+      "expected_answer": "Expense reports must be submitted within 5 business days of the trip via the Finance Portal, with all receipts. Late submissions exceeding 30 days will be rejected.",
+      "source_documents": ["07_Travel_Expense_Policy.pdf"],
+      "expected_pages": [3],
+      "has_answer": true
+    },
+    {
+      "id": "comparison_001",
+      "category": "comparison",
+      "difficulty": "hard",
+      "question": "How did ChatAssist's retrieval accuracy improve from v2.2 to v2.3, and what specific technical changes caused the improvement?",
+      "expected_answer": "Retrieval accuracy improved from 87.3% (v2.2) to 91.2% (v2.3), a +3.9pp improvement. Key technical changes: (1) upgraded to hybrid search with BM25 + vector with RRF fusion (alpha 0.7), contributing +3.9pp retrieval accuracy; (2) added cross-encoder reranker (bge-reranker-base) for second-stage ranking, top-40 reranked to top-6, contributing +2.1pp precision@5; (3) implemented semantic chunking based on sentence embedding similarity replacing fixed 500-token chunks.",
+      "source_documents": ["19_ChatAssist_Release_Notes_v2.3.pdf"],
+      "expected_pages": [1, 2],
+      "has_answer": true
+    },
+    {
+      "id": "comparison_002",
+      "category": "comparison",
+      "difficulty": "hard",
+      "question": "Compare the three SLA tiers offered by TechViet. What are the uptime and response time commitments for each?",
+      "expected_answer": "TechViet offers three SLA tiers based on contract value: Platinum (>$500K contracts) with the highest uptime and fastest response times, Gold (mid-tier), and Silver (lower tier). SLA commitments are contractually binding and tracked via the Client Success Dashboard at clients.techviet.vn. SLA credits are automatically calculated when thresholds are breached, measured on a rolling 30-day basis.",
+      "source_documents": ["16_Client_SLA_Playbook.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "comparison_003",
+      "category": "comparison",
+      "difficulty": "hard",
+      "question": "What are the differences between the data classification levels at TechViet?",
+      "expected_answer": "TechViet has 4 classification levels: Level 1 (Public) - no special controls needed. Level 2 (Internal) - access restricted to employees/contractors, TLS 1.2+ required, encryption at rest recommended but not mandatory. Level 3 (Confidential) - need-to-know basis with RBAC, TLS 1.3 and AES-256 encryption mandatory, access logs for 12 months. Level 4 (Restricted) - most sensitive data like government IDs, biometric data, health records, financial account numbers, and cryptographic keys.",
+      "source_documents": ["28_Compliance_GDPR_PDPA_Handbook.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "comparison_004",
+      "category": "comparison",
+      "difficulty": "hard",
+      "question": "How do the two major database incidents (INC-2026-0042 and the Black Friday INC-2025-089) differ in root cause and impact?",
+      "expected_answer": "INC-2026-0042 (Feb 2026): complete outage for 2h47m caused by a developer accidentally running CREATE INDEX (not CONCURRENTLY) on production, locking an 85M-row table. Affected 12,000 VietBank users, VND 450M financial impact. INC-2025-089 (Black Friday Nov 2025): degraded service for 4h23m caused by an analytics query doing full table scans on 450M rows (DATE_TRUNC preventing index usage) combined with 340% traffic increase. Affected 150,000 users, VND 2.3 billion in SLA credits.",
+      "source_documents": ["09_Incident_Postmortem_INC0042.pdf", "25_Incident_Management_Case_Studies.pdf"],
+      "expected_pages": [1, 1],
+      "has_answer": true
+    },
+    {
+      "id": "numerical_001",
+      "category": "numerical_extraction",
+      "difficulty": "medium",
+      "question": "How many employees does TechViet have and how are they distributed across offices?",
+      "expected_answer": "TechViet employs 458 full-time staff and 32 long-term contractors across three offices: Ho Chi Minh City headquarters (320 staff), Hanoi (95 staff), and Da Nang (75 staff).",
+      "source_documents": ["01_Employee_Handbook.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "numerical_002",
+      "category": "numerical_extraction",
+      "difficulty": "medium",
+      "question": "What was TechViet's Q4 2025 revenue and year-over-year growth?",
+      "expected_answer": "TechViet closed Q4 2025 with consolidated revenue of VND 48.7 billion, representing 23% year-over-year growth, exceeding the quarterly target of VND 45 billion by 8.2%. ChatAssist Platform contributed VND 38.2 billion (78% of total).",
+      "source_documents": ["27_Quarterly_Business_Review_Q4_2025.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "numerical_003",
+      "category": "numerical_extraction",
+      "difficulty": "medium",
+      "question": "How many events per day does the data engineering pipeline process?",
+      "expected_answer": "The data engineering pipeline processes approximately 50 million events per day from 15 distinct sources, with a total daily data volume of approximately 200 GB before transformation and 80 GB after compression and deduplication.",
+      "source_documents": ["26_Data_Engineering_Pipeline_Manual.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "numerical_004",
+      "category": "numerical_extraction",
+      "difficulty": "medium",
+      "question": "How many APIs does TechViet's API gateway serve and what is the daily throughput?",
+      "expected_answer": "The Kong API Gateway serves 47 registered APIs across 12 microservices with an average daily throughput of 2.8 million requests.",
+      "source_documents": ["13_API_Documentation.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "numerical_005",
+      "category": "numerical_extraction",
+      "difficulty": "medium",
+      "question": "What is the financial impact of the ShopSmart Recommendation Engine project being at-risk?",
+      "expected_answer": "The ShopSmart Recommendation Engine has consumed 89% of its budget with only approximately 60% of features delivered. The estimated additional cost to complete is USD 45,000. The root cause is three major scope changes requested by MegaMart after sprint 4 that were accepted without budget adjustments.",
+      "source_documents": ["05_Q1_2026_Project_Status.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "negation_001",
+      "category": "negation_refusal",
+      "difficulty": "medium",
+      "question": "What is the exact salary range for a Senior Software Engineer at TechViet?",
+      "expected_answer": "This information is not found in the provided documents. While the documents mention compensation benchmarking exercises and career ladders, specific salary ranges are not disclosed.",
+      "source_documents": [],
+      "expected_pages": [],
+      "has_answer": false
+    },
+    {
+      "id": "negation_002",
+      "category": "negation_refusal",
+      "difficulty": "medium",
+      "question": "What is TechViet's stock option or equity compensation plan?",
+      "expected_answer": "This information is not found in the provided documents. The documents cover benefits, bonuses, and compensation structure but do not mention stock options or equity compensation.",
+      "source_documents": [],
+      "expected_pages": [],
+      "has_answer": false
+    },
+    {
+      "id": "negation_003",
+      "category": "negation_refusal",
+      "difficulty": "medium",
+      "question": "Does TechViet have an office in Singapore?",
+      "expected_answer": "No. According to the documents, TechViet has three offices: Ho Chi Minh City (headquarters), Hanoi, and Da Nang. There is no mention of an office in Singapore.",
+      "source_documents": [],
+      "expected_pages": [],
+      "has_answer": false
+    },
+    {
+      "id": "negation_004",
+      "category": "negation_refusal",
+      "difficulty": "hard",
+      "question": "What machine learning framework does TechViet use for training models - PyTorch or TensorFlow?",
+      "expected_answer": "The specific ML training framework (PyTorch vs TensorFlow) is not explicitly stated in the provided documents. The documents discuss ML capabilities, model serving, and infrastructure but do not specify the training framework.",
+      "source_documents": [],
+      "expected_pages": [],
+      "has_answer": false
+    },
+    {
+      "id": "negation_005",
+      "category": "negation_refusal",
+      "difficulty": "hard",
+      "question": "What is the CEO's exact annual compensation package?",
+      "expected_answer": "This information is not found in the provided documents. The CEO is Dr. Pham Quang Minh, but individual compensation details are not disclosed in any document.",
+      "source_documents": [],
+      "expected_pages": [],
+      "has_answer": false
+    },
+    {
+      "id": "ambiguous_001",
+      "category": "ambiguous_paraphrase",
+      "difficulty": "hard",
+      "question": "I got locked out of my account on a Saturday night. What should I do?",
+      "expected_answer": "For lockouts during off-hours (after 6 PM or weekends), email it-support@techviet.vn with subject 'URGENT: Account Lockout'. On-call IT responds within 1 hour. If you suspect your account was compromised (you didn't cause the lockout), immediately report to the Security Team at #security-incidents or soc@techviet.vn and do NOT attempt to log in.",
+      "source_documents": ["10_IT_Support_FAQ.pdf"],
+      "expected_pages": [2],
+      "has_answer": true
+    },
+    {
+      "id": "ambiguous_002",
+      "category": "ambiguous_paraphrase",
+      "difficulty": "hard",
+      "question": "My VPN keeps showing a handshake timeout error. How do I fix it?",
+      "expected_answer": "The 'Handshake timeout' error is likely caused by an expired config file (older than 90 days) or clock skew on your device. Download a fresh config from vpn.techviet.vn and verify your system clock is accurate (Settings > Date & Time > auto-set).",
+      "source_documents": ["10_IT_Support_FAQ.pdf"],
+      "expected_pages": [3],
+      "has_answer": true
+    },
+    {
+      "id": "ambiguous_003",
+      "category": "ambiguous_paraphrase",
+      "difficulty": "hard",
+      "question": "I want to get promoted to Senior Engineer. What do I need to do?",
+      "expected_answer": "TechViet's engineering career ladder has 6 levels (L1-L6). Promotion requires meeting all competencies at the target level across 4 areas (Technical Skills, Delivery & Impact, Leadership & Collaboration, and Business Acumen) for at least one full review cycle (6 months). Mentorship counts as a leadership competency for promotion reviews. The mentorship program runs in 6-month cycles with bi-weekly 1-on-1 sessions.",
+      "source_documents": ["17_Career_Development_Catalog.pdf"],
+      "expected_pages": [1, 3],
+      "has_answer": true
+    },
+    {
+      "id": "longcontext_001",
+      "category": "long_context",
+      "difficulty": "hard",
+      "question": "Describe the complete incident response escalation path at TechViet, from initial alert to CEO involvement.",
+      "expected_answer": "The escalation path is: 0 min - Alert fires, primary on-call receives PagerDuty notification (push + SMS + phone). 5 min - If no acknowledgment, auto-escalate to secondary on-call (PagerDuty push + phone call). 15 min - If P1, Incident Commander declared (Engineering Manager), war room opened via Slack #incident-{id} channel. 30 min - If P1 unresolved, escalate to VP Engineering (Le Van Hung). 1 hour - If P1 unresolved, CTO and affected client PM notified via phone + email. 2 hours - If P1 unresolved, CEO briefed, external communications prepared.",
+      "source_documents": ["14_Operations_Runbook.pdf"],
+      "expected_pages": [3],
+      "has_answer": true
+    },
+    {
+      "id": "longcontext_002",
+      "category": "long_context",
+      "difficulty": "hard",
+      "question": "Explain TechViet's complete data engineering pipeline architecture from ingestion to the Gold layer.",
+      "expected_answer": "The pipeline follows a lakehouse architecture with three layers: Bronze layer (raw ingestion) stores data exactly as received in Apache Parquet format on S3, providing a complete audit trail. Real-time sources come from Kafka topics and batch sources from HR Portal, SAP Business One, and HubSpot CRM. Silver layer (cleaned/standardized) applies schema validation, data type normalization, deduplication, and PII masking, stored in partitioned ClickHouse tables. Gold layer (business-ready aggregates) contains pre-computed metrics as SQL materialized views in ClickHouse, refreshed hourly for daily views and nightly for weekly/monthly. Data lineage is tracked using Apache Atlas. Data quality is monitored using Great Expectations.",
+      "source_documents": ["26_Data_Engineering_Pipeline_Manual.pdf"],
+      "expected_pages": [1, 2, 3],
+      "has_answer": true
+    }
+  ]
+}

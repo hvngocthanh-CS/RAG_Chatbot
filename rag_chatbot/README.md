@@ -27,8 +27,9 @@ Cách 1: Dev local (code xong test nhanh, có hot-reload)
   Backend trong Docker sẽ tự kết nối tới Ollama trên host qua host.docker.internal:11434.
 
 
-Chạy evaluation
+Chạy evaluation (xem `evaluation/README.md` để biết chi tiết)
 
-  pip install ragas datasets langchain-community
-  python scripts/evaluate_rag.py --limit 3        # Quick test
-  python scripts/evaluate_rag.py --save-report     # Full + save
+  pip install ragas datasets langchain-community pyyaml
+  make evaluate-quick                              # smoke test (5 cases, không RAGAS)
+  make evaluate                                    # full run (retrieval + RAGAS)
+  python -m evaluation.run_evaluation --categories factual_easy multi_hop

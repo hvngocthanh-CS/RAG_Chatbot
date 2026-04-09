@@ -132,3 +132,7 @@ fe_rag_chatbot/.vs/
 # Test outputs
 evaluation_results.json
 test_results/
+
+# Evaluation reports — keep the folder (.gitkeep), ignore generated artefacts
+evaluation/reports/*.json
+!evaluation/reports/.gitkeep
