@@ -187,7 +187,7 @@ class LLMService:
                     content = content[:300] + "..."
                 messages.append({"role": turn["role"], "content": content})
 
-        user_message = f"""Answer the following question based on the provided context.
+        user_message = f"""Answer based ONLY on the context below. If the answer is not in the context, say "Not found in documents."
 
 CONTEXT:
 {context}

@@ -134,7 +134,7 @@ class RAGASEvaluator:
         if self._llm is not None:
             return self._llm
         from ragas.llms import LangchainLLMWrapper
-        from langchain_community.chat_models import ChatOllama
+        from langchain_ollama import ChatOllama
 
         base_url = settings.OLLAMA_BASE_URL.replace("/v1", "")
         ollama_llm = ChatOllama(model=self._model_name, base_url=base_url)
@@ -144,8 +144,12 @@ class RAGASEvaluator:
     def _get_embeddings(self):
         if self._embeddings is not None:
             return self._embeddings
-        from ragas.embeddings import HuggingfaceEmbeddings
-        self._embeddings = HuggingfaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
+        from ragas.embeddings import LangchainEmbeddingsWrapper
+        from langchain_huggingface import HuggingFaceEmbeddings
+        
+        hf_embeddings = HuggingFaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
+        self._embeddings = LangchainEmbeddingsWrapper(hf_embeddings)
+        return self._embeddings
         return self._embeddings
 
     async def evaluate(self, samples: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -159,21 +163,32 @@ class RAGASEvaluator:
         from ragas import evaluate
         from ragas.dataset_schema import SingleTurnSample, EvaluationDataset
         from ragas.run_config import RunConfig
-        from ragas.metrics import (
-            Faithfulness,
-            ResponseRelevancy,
-            LLMContextPrecisionWithoutReference,
-            LLMContextRecallWithoutReference,
-        )
+        from ragas.metrics import Faithfulness, ResponseRelevancy
+        
+        # Try importing context metrics (name varies by RAGAS version)
+        try:
+            from ragas.metrics import LLMContextPrecisionWithoutReference, LLMContextRecallWithoutReference
+            context_precision_cls = LLMContextPrecisionWithoutReference
+            context_recall_cls = LLMContextRecallWithoutReference
+        except ImportError:
+            try:
+                from ragas.metrics import ContextPrecision, ContextRecall
+                context_precision_cls = ContextPrecision
+                context_recall_cls = ContextRecall
+            except ImportError:
+                context_precision_cls = None
+                context_recall_cls = None
 
         llm = self._get_llm()
         embeddings = self._get_embeddings()
         metric_objects = [
             Faithfulness(llm=llm),
             ResponseRelevancy(llm=llm, embeddings=embeddings),
-            LLMContextPrecisionWithoutReference(llm=llm),
-            LLMContextRecallWithoutReference(llm=llm),
         ]
+        if context_precision_cls:
+            metric_objects.append(context_precision_cls(llm=llm))
+        if context_recall_cls:
+            metric_objects.append(context_recall_cls(llm=llm))
 
         ragas_samples = [
             SingleTurnSample(
