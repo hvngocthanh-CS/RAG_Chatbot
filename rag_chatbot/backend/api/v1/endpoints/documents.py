@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from backend.config import settings
+from backend.core.exceptions import IngestionError
 from backend.services.ingestion import DocumentIngestionService
 from backend.services import get_service
 from backend.api.v1.schemas.documents import (
@@ -92,11 +93,12 @@ async def upload_document(
             message=f"Document processed: {result.get('chunks_count', 0)} chunks created"
         )
 
-    except Exception as e:
-        logger.error("Failed to process document %s: %s", file.filename, e, exc_info=True)
+    except IngestionError as e:
+        # Domain-level failure: bad/corrupt file, parsing fails, etc.
+        # The pipeline already logged the full traceback.
         raise HTTPException(
             status_code=400,
-            detail=f"Failed to process document: {str(e)}"
+            detail=f"Failed to process document: {e}",
         )
 
 

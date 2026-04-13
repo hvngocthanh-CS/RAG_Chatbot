@@ -40,12 +40,10 @@ pip install ragas datasets langchain-community           # deps cho RAGAS
 
 **Chạy:**
 ```bash
-make evaluate-quick              # 5 cases, bỏ RAGAS — smoke test (~1 phút)
-make evaluate                    # full 50 cases + RAGAS (~10-20 phút tùy LLM)
-
-# Hoặc gọi trực tiếp
-python -m evaluation.run_evaluation --limit 10
-python -m evaluation.run_evaluation --top-k 10 --no-ragas
+python -m evaluation.run_evaluation --limit 5 --no-ragas   # smoke test (~1 phút)
+python -m evaluation.run_evaluation                         # full 50 cases + RAGAS (~10-20 phút)
+python -m evaluation.run_evaluation --limit 10              # custom limit
+python -m evaluation.run_evaluation --top-k 10 --no-ragas   # custom top-k
 ```
 
 **Kết quả** được lưu ở `evaluation/reports/report_<timestamp>.json`.

@@ -5,10 +5,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.middleware import CorrelationIdMiddleware
 from backend.api.v1.endpoints import chat, documents, health
 from backend.config import settings
+from backend.core.logging import setup_logging
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
+setup_logging(level=settings.LOG_LEVEL, fmt=settings.LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 
@@ -38,6 +40,10 @@ def create_app() -> FastAPI:
         openapi_url=f"{settings.API_PREFIX}/openapi.json",
         lifespan=lifespan,
     )
+
+    # Order matters: CorrelationIdMiddleware must run first so the request_id
+    # is set before any downstream middleware (incl. CORS) emits log lines.
+    app.add_middleware(CorrelationIdMiddleware)
 
     app.add_middleware(
         CORSMiddleware,

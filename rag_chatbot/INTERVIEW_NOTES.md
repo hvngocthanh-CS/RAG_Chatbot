@@ -513,8 +513,8 @@ RAG có **rất nhiều hyperparameter** (chunk size, top_k, alpha RRF, reranker
 
 ### Cách chạy
 ```bash
-make evaluate-quick   # 5 cases, không RAGAS, smoke test
-make evaluate         # full 50 cases + RAGAS
+python -m evaluation.run_evaluation --limit 5 --no-ragas   # smoke test
+python -m evaluation.run_evaluation                         # full 50 cases + RAGAS
 ```
 
 ---

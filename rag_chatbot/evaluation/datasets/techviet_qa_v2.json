@@ -421,8 +421,8 @@
       "id": "negation_001",
       "category": "negation_refusal",
       "difficulty": "medium",
-      "question": "What is the exact salary range for a Senior Software Engineer at TechViet?",
-      "expected_answer": "This information is not found in the provided documents. While the documents mention compensation benchmarking exercises and career ladders, specific salary ranges are not disclosed.",
+      "question": "What is TechViet's employee turnover rate for 2025?",
+      "expected_answer": "This information is not found in the provided documents. The documents cover employee headcount and organizational structure but do not disclose turnover or attrition rates.",
       "source_documents": [],
       "expected_pages": [],
       "has_answer": false
@@ -431,8 +431,8 @@
       "id": "negation_002",
       "category": "negation_refusal",
       "difficulty": "medium",
-      "question": "What is TechViet's stock option or equity compensation plan?",
-      "expected_answer": "This information is not found in the provided documents. The documents cover benefits, bonuses, and compensation structure but do not mention stock options or equity compensation.",
+      "question": "How many rounds of interviews does TechViet's hiring process involve?",
+      "expected_answer": "This information is not found in the provided documents. The documents cover onboarding, performance management, and career development but do not describe the recruitment interview process.",
       "source_documents": [],
       "expected_pages": [],
       "has_answer": false
@@ -441,8 +441,8 @@
       "id": "negation_003",
       "category": "negation_refusal",
       "difficulty": "medium",
-      "question": "Does TechViet have an office in Singapore?",
-      "expected_answer": "No. According to the documents, TechViet has three offices: Ho Chi Minh City (headquarters), Hanoi, and Da Nang. There is no mention of an office in Singapore.",
+      "question": "What is TechViet's marketing strategy for acquiring new enterprise clients?",
+      "expected_answer": "This information is not found in the provided documents. The documents mention client portfolio and sales partnerships but do not describe specific marketing strategies or client acquisition processes.",
       "source_documents": [],
       "expected_pages": [],
       "has_answer": false
@@ -461,8 +461,8 @@
       "id": "negation_005",
       "category": "negation_refusal",
       "difficulty": "hard",
-      "question": "What is the CEO's exact annual compensation package?",
-      "expected_answer": "This information is not found in the provided documents. The CEO is Dr. Pham Quang Minh, but individual compensation details are not disclosed in any document.",
+      "question": "What is TechViet's revenue forecast and growth target for FY2027?",
+      "expected_answer": "This information is not found in the provided documents. The documents include Q4 2025 financial results and the 2026 product roadmap but do not contain revenue projections for FY2027.",
       "source_documents": [],
       "expected_pages": [],
       "has_answer": false

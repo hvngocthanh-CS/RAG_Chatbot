@@ -30,6 +30,13 @@ Cách 1: Dev local (code xong test nhanh, có hot-reload)
 Chạy evaluation (xem `evaluation/README.md` để biết chi tiết)
 
   pip install ragas datasets langchain-community pyyaml
-  make evaluate-quick                              # smoke test (5 cases, không RAGAS)
-  make evaluate                                    # full run (retrieval + RAGAS)
-  python -m evaluation.run_evaluation --categories factual_easy multi_hop
+
+  # Đảm bảo Qdrant + Ollama đang chạy, documents đã ingested
+
+  # Smoke test (5 cases, không RAGAS, ~1-2 phút)
+  python -m evaluation.run_evaluation --limit 5 --no-ragas
+
+  # Full evaluation (50 cases + RAGAS, ~10-20 phút)
+  python -m evaluation.run_evaluation
+
+  # Kết quả lưu ở evaluation/reports/report_YYYYMMDD_HHMMSS.json

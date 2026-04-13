@@ -1,37 +1,38 @@
 """
-Document Ingestion Service.
-Orchestrates document parsing, preprocessing, chunking, table extraction,
-and embedding generation.
+Document Ingestion Service — orchestrates the end-to-end ingestion pipeline.
+
+Responsibilities are split across small collaborators so this file stays
+short and readable:
+
+    parse  -> preprocess -> extract tables -> chunk text
+                                            -> build table chunks
+                                            -> embed all chunks
+                                            -> store in vector DB
+                                            -> write metadata sidecar
+
+Each collaborator lives in its own module (`parser.py`, `preprocessor.py`,
+`chunker.py`, `table_extractor.py`, `table_chunk_builder.py`,
+`metadata_writer.py`). This class only wires them together.
 """
-import os
-import json
 import logging
-from typing import List, Dict, Any
-from datetime import datetime
+from typing import Any, Dict, List
 
 from backend.config import settings
-from backend.models import Table
+from backend.core.exceptions import IngestionError
 from backend.services import get_service
+
+from .chunker import SectionChunker
+from .metadata_writer import IngestionMetadataWriter
 from .parser import DocumentParser
 from .preprocessor import DocumentPreprocessor
-from .chunker import SectionChunker
+from .table_chunk_builder import TableChunkBuilder
 from .table_extractor import TableExtractor
 
 logger = logging.getLogger(__name__)
 
 
 class DocumentIngestionService:
-    """
-    Service for ingesting documents into the RAG system.
-
-    Pipeline:
-    1. Parse document to extract text and layout
-    2. Preprocess (clean, merge, deduplicate blocks)
-    3. Chunk text into section-aware segments
-    4. Extract tables and convert to text chunks
-    5. Generate embeddings for all chunks
-    6. Store in vector database
-    """
+    """High-level entry point for ingesting a document into the RAG index."""
 
     def __init__(self):
         self.parser = DocumentParser()
@@ -44,7 +45,12 @@ class DocumentIngestionService:
             semantic_min_score=settings.SECTION_SEMANTIC_MIN_SCORE,
         )
         self.table_extractor = TableExtractor()
+        self.table_chunk_builder = TableChunkBuilder()
+        self.metadata_writer = IngestionMetadataWriter()
 
+    # Embedding & vector store are global singletons (see backend.services).
+    # We pull them lazily so this class can be constructed before they exist
+    # (e.g. in unit tests).
     @property
     def embedding_service(self):
         return get_service("embedding")
@@ -58,35 +64,27 @@ class DocumentIngestionService:
         file_path: str,
         metadata: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Process a document through the full ingestion pipeline."""
+        """
+        Run the full ingestion pipeline for one document.
+
+        Args:
+            file_path: absolute path to the uploaded file.
+            metadata: must contain at least `document_id` and `filename`.
+                      Forwarded into every chunk's metadata.
+
+        Returns:
+            A summary dict: status, document_id, chunks_count, breakdown.
+
+        Raises:
+            IngestionError: any step of the pipeline failed. The original
+                exception is chained via `raise ... from`.
+        """
         try:
-            # Step 1: Parse document
-            parsed = await self.parser.parse(file_path)
+            chunks = await self._build_chunks(file_path, metadata)
 
-            # Step 2: Preprocess (clean text, merge blocks, deduplicate)
-            parsed = self.preprocessor.preprocess(parsed)
-
-            # Step 3: Extract tables
-            tables = self.table_extractor.extract_tables(parsed)
-
-            # Step 4: Chunk text content (section-aware + semantic embedding)
-            embedding_model = self.embedding_service.model
-            if embedding_model is not None:
-                self.chunker.set_embedding_model(embedding_model)
-
-            text_block_dicts = [b.to_dict() for b in parsed.text_blocks]
-            text_chunks = self.chunker.chunk_text(text_block_dicts, metadata)
-
-            # Step 5: Convert tables to chunks
-            table_chunks = self._process_tables(tables, metadata)
-
-            # Combine all chunks
-            all_chunks = text_chunks + table_chunks
-
-            if not all_chunks:
+            if not chunks:
                 logger.warning(
-                    "No content extracted from document: %s",
-                    metadata["filename"],
+                    "No content extracted from document: %s", metadata["filename"],
                 )
                 return {
                     "status": "warning",
@@ -94,157 +92,63 @@ class DocumentIngestionService:
                     "chunks_count": 0,
                 }
 
-            # Step 6: Generate embeddings
-            logger.info("Generating embeddings for %d chunks", len(all_chunks))
-            embeddings = await self.embedding_service.embed_documents(
-                [chunk["content"] for chunk in all_chunks]
-            )
+            await self._embed_and_store(chunks, metadata)
 
-            # Add embeddings to chunks
-            for chunk, embedding in zip(all_chunks, embeddings):
-                chunk["embedding"] = embedding
+            text_chunks = sum(1 for c in chunks if c["metadata"].get("chunk_type") not in ("table", "table_rows"))
+            table_chunks = len(chunks) - text_chunks
+            tables_count = sum(1 for c in chunks if c["metadata"].get("chunk_type") == "table")
 
-            # Step 7: Store in vector database
-            await self.vector_store.add_chunks(all_chunks, metadata)
-
-            # Save processing metadata
-            self._save_processing_metadata(metadata, len(all_chunks), len(tables))
-
-            logger.info(
-                "Document processed successfully: %d chunks created",
-                len(all_chunks),
-            )
+            self.metadata_writer.write_success(metadata, len(chunks), tables_count)
+            logger.info("Document processed: %d chunks", len(chunks))
 
             return {
                 "status": "success",
                 "document_id": metadata["document_id"],
-                "chunks_count": len(all_chunks),
-                "text_chunks": len(text_chunks),
-                "table_chunks": len(table_chunks),
+                "chunks_count": len(chunks),
+                "text_chunks": text_chunks,
+                "table_chunks": table_chunks,
             }
 
         except Exception as e:
-            logger.error("Error processing document: %s", e, exc_info=True)
-            self._save_processing_error(metadata, str(e))
-            raise
+            logger.error("Ingestion failed for %s: %s", metadata.get("filename"), e, exc_info=True)
+            self.metadata_writer.write_failure(metadata, str(e))
+            raise IngestionError(str(e)) from e
 
-    def _process_tables(
+    # ---- internal steps ---------------------------------------------------
+
+    async def _build_chunks(
         self,
-        tables: List[Table],
+        file_path: str,
         metadata: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
-        """Convert extracted Table objects to chunk dicts."""
-        table_chunks = []
+        """Parse + preprocess + chunk text + build table chunks."""
+        parsed = await self.parser.parse(file_path)
+        parsed = self.preprocessor.preprocess(parsed)
 
-        for idx, table in enumerate(tables):
-            table_text = TableExtractor.table_to_text(table)
+        tables = self.table_extractor.extract_tables(parsed)
 
-            chunk = {
-                "content": table_text,
-                "metadata": {
-                    **metadata,
-                    "chunk_type": "table",
-                    "table_index": idx,
-                    "table_name": table.name or f"Table {idx + 1}",
-                    "column_headers": table.headers,
-                    "page_number": table.page_number,
-                    "row_count": len(table.rows),
-                },
-            }
-            table_chunks.append(chunk)
+        # The chunker can use the embedding model to pick semantic boundaries.
+        embedding_model = self.embedding_service.model if self.embedding_service else None
+        if embedding_model is not None:
+            self.chunker.set_embedding_model(embedding_model)
 
-            # Large tables: also create row-batch chunks for finer retrieval
-            if len(table.rows) > 10:
-                row_chunks = self._create_row_chunks(table, metadata, idx)
-                table_chunks.extend(row_chunks)
+        text_block_dicts = [b.to_dict() for b in parsed.text_blocks]
+        text_chunks = self.chunker.chunk_text(text_block_dicts, metadata)
+        table_chunks = self.table_chunk_builder.build(tables, metadata)
 
-        return table_chunks
+        return text_chunks + table_chunks
 
-    def _create_row_chunks(
+    async def _embed_and_store(
         self,
-        table: Table,
+        chunks: List[Dict[str, Any]],
         metadata: Dict[str, Any],
-        table_idx: int,
-    ) -> List[Dict[str, Any]]:
-        """Create individual chunks for table rows (for large tables)."""
-        row_chunks = []
-        batch_size = 5
-
-        for i in range(0, len(table.rows), batch_size):
-            batch = table.rows[i : i + batch_size]
-
-            lines = [
-                f"Table: {table.name or f'Table {table_idx + 1}'} "
-                f"(Rows {i + 1}-{i + len(batch)})",
-                "",
-            ]
-
-            for row_idx, row in enumerate(batch, i + 1):
-                lines.append(f"Row {row_idx}:")
-                for col_idx, cell_value in enumerate(row):
-                    header = (
-                        table.headers[col_idx]
-                        if col_idx < len(table.headers)
-                        else f"Column {col_idx + 1}"
-                    )
-                    lines.append(f"  {header}: {cell_value}")
-                lines.append("")
-
-            row_chunks.append({
-                "content": "\n".join(lines),
-                "metadata": {
-                    **metadata,
-                    "chunk_type": "table_rows",
-                    "table_index": table_idx,
-                    "row_range": f"{i + 1}-{i + len(batch)}",
-                    "page_number": table.page_number,
-                },
-            })
-
-        return row_chunks
-
-    def _save_processing_metadata(
-        self,
-        metadata: Dict[str, Any],
-        chunks_count: int,
-        tables_count: int,
-    ):
-        """Save document processing metadata to file."""
-        os.makedirs(settings.PROCESSED_DIR, exist_ok=True)
-
-        processing_info = {
-            "document_id": metadata["document_id"],
-            "filename": metadata["filename"],
-            "processed_at": datetime.utcnow().isoformat(),
-            "status": "completed",
-            "chunks_count": chunks_count,
-            "tables_count": tables_count,
-        }
-
-        path = os.path.join(
-            settings.PROCESSED_DIR,
-            f"{metadata['document_id']}_meta.json",
+    ) -> None:
+        """Generate embeddings for every chunk and persist them."""
+        logger.info("Generating embeddings for %d chunks", len(chunks))
+        embeddings = await self.embedding_service.embed_documents(
+            [chunk["content"] for chunk in chunks]
         )
+        for chunk, embedding in zip(chunks, embeddings):
+            chunk["embedding"] = embedding
 
-        with open(path, "w") as f:
-            json.dump(processing_info, f, indent=2)
-
-    def _save_processing_error(self, metadata: Dict[str, Any], error: str):
-        """Save processing error information."""
-        os.makedirs(settings.PROCESSED_DIR, exist_ok=True)
-
-        error_info = {
-            "document_id": metadata["document_id"],
-            "filename": metadata["filename"],
-            "processed_at": datetime.utcnow().isoformat(),
-            "status": "failed",
-            "error": error,
-        }
-
-        path = os.path.join(
-            settings.PROCESSED_DIR,
-            f"{metadata['document_id']}_meta.json",
-        )
-
-        with open(path, "w") as f:
-            json.dump(error_info, f, indent=2)
+        await self.vector_store.add_chunks(chunks, metadata)

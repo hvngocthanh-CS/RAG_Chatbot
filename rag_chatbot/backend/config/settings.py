@@ -93,6 +93,8 @@ class Settings(BaseSettings):
 
     # --- Logging ---
     LOG_LEVEL: str = "INFO"
+    # "json" for production (Docker/K8s log aggregators); "console" for local dev.
+    LOG_FORMAT: str = "console"
 
     # --- Security ---
     CORS_ORIGINS: List[str] = ["*"]

@@ -1,16 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m py_compile backend/services/embeddings.py)",
-      "Bash(python -m py_compile backend/services/reranker.py)",
-      "Bash(python -m py_compile backend/services/query_understanding.py)",
-      "Bash(python -m py_compile backend/services/document_parser.py)",
-      "Bash(python -m py_compile backend/services/semantic_chunker.py)",
-      "Bash(rm -rf \"C:/Users/thanhhvn/Project/RAG_Chatbot/data/techviet_docs/\")",
-      "Bash(mkdir -p \"C:/Users/thanhhvn/Project/RAG_Chatbot/data/techviet_docs/\")",
-      "Bash(python generate_docs.py)",
-      "Bash(rm -rf data/techviet_docs)",
-      "Bash(mkdir -p data/techviet_docs)"
+      "Bash(python -c \"from backend.models import TextBlock, Table, ParsedDocument; print\\('models OK'\\)\")",
+      "Bash(python -c \"from backend.core import CircuitBreaker, retry_with_backoff; print\\('core OK'\\)\")",
+      "Bash(python -c \"from backend.core.exceptions import RAGException, DocumentProcessingError; print\\('exceptions OK'\\)\")",
+      "Bash(python -c \"from backend.config import settings; print\\('config OK'\\)\")",
+      "Bash(python -c \"from backend.api.v1.schemas.chat import ChatRequest, ChatResponse; print\\('schemas OK'\\)\")"
     ]
   }
 }
