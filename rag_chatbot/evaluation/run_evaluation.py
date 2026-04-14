@@ -1,21 +1,14 @@
 #!/usr/bin/env python3
-"""
-RAG Evaluation — main script.
+"""RAG Evaluation - main script.
 
-Runs the RAG pipeline over the evaluation dataset and computes:
-  1. Retrieval metrics (Hit@k, Recall@k, MRR, Refusal Accuracy)
-  2. Generation metrics (RAGAS: faithfulness, relevancy, precision, recall)
+Runs RAG pipeline over eval dataset and computes:
+  1. Retrieval metrics (Hit@k, Recall@k, MRR, Refusal)
+  2. Generation metrics (RAGAS: faithfulness, relevancy, context precision/recall)
 
 Usage:
-    python -m evaluation.run_evaluation                        # full run
-    python -m evaluation.run_evaluation --limit 5              # smoke test
-    python -m evaluation.run_evaluation --no-ragas             # skip RAGAS (fast)
-    python -m evaluation.run_evaluation --top-k 10
-
-Requires:
-    - Qdrant running
-    - Ollama running with a model pulled
-    - Documents already ingested
+    python -m evaluation.run_evaluation              # full run
+    python -m evaluation.run_evaluation --limit 5    # smoke test
+    python -m evaluation.run_evaluation --no-ragas   # skip RAGAS (fast)
 """
 from __future__ import annotations
 
@@ -36,27 +29,23 @@ from backend.config import settings
 from backend.services import initialize_services, get_service
 from backend.services.retrieval import RetrievalService
 from backend.services.llm import LLMService
-
-from evaluation.metrics import (
-    compute_retrieval_metrics,
-    RAGASEvaluator,
-)
+from evaluation.metrics import compute_retrieval_metrics, RAGASEvaluator
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DATASET = "evaluation/datasets/techviet_qa_v2.json"
 REPORT_DIR = "evaluation/reports"
-
-
-# ======================================================================
-# Pipeline runner
-# ======================================================================
+REFUSAL_KEYWORDS = (
+    "not found", "not mentioned", "no information", "cannot find",
+    "don't know", "do not know", "not available",
+    "không tìm thấy", "không có thông tin",
+)
 
 def format_context(chunks: List[Dict[str, Any]]) -> str:
-    """Format retrieved chunks into a context string for the LLM prompt."""
+    """Format retrieved chunks into context for LLM."""
     parts = []
     for i, chunk in enumerate(chunks, 1):
-        meta = chunk.get("metadata") or {}
+        meta = chunk.get("metadata", {})
         source = meta.get("filename", "Unknown")
         page = meta.get("page_number", "N/A")
         parts.append(f"[Source {i}: {source}, Page {page}]\n{chunk['content']}")
@@ -69,7 +58,7 @@ async def run_pipeline(
     llm_service: LLMService,
     top_k: int,
 ) -> List[Dict[str, Any]]:
-    """Run each test case through the RAG pipeline and collect samples."""
+    """Run each test case through RAG pipeline."""
     samples = []
 
     for i, tc in enumerate(test_cases, 1):
@@ -92,12 +81,10 @@ async def run_pipeline(
 
             if chunks:
                 sample["answer"] = await llm_service.generate(
-                    question=tc["question"],
-                    context=format_context(chunks),
+                    question=tc["question"], context=format_context(chunks)
                 )
             else:
                 sample["answer"] = "No relevant documents found."
-
             print(f"      {len(chunks)} chunks retrieved")
         except Exception as e:
             print(f"      ERROR: {e}")
@@ -108,112 +95,77 @@ async def run_pipeline(
     return samples
 
 
-# ======================================================================
-# Refusal accuracy on the generation side
-# ======================================================================
-
-REFUSAL_PHRASES = (
-    "not found", "not mentioned", "no information", "cannot find",
-    "don't know", "do not know", "not available",
-    "không tìm thấy", "không có thông tin",
-)
-
-
 def is_refusal(answer: str) -> bool:
-    a = (answer or "").lower()
-    return any(p in a for p in REFUSAL_PHRASES)
-
-
-# ======================================================================
-# Reporting
-# ======================================================================
+    """Check if answer is a refusal."""
+    return any(kw in (answer or "").lower() for kw in REFUSAL_KEYWORDS)
 
 def print_retrieval(metrics: Dict[str, Any]):
-    print("\n" + "-" * 60)
-    print(f"  RETRIEVAL METRICS (k={metrics['k']})")
-    print("-" * 60)
+    print(f"\n{'='*60}\n  RETRIEVAL METRICS (k={metrics['k']})\n{'='*60}")
     print(f"  Hit@k            {metrics['hit_at_k']:.4f}")
     print(f"  Recall@k         {metrics['recall_at_k']:.4f}")
     print(f"  MRR              {metrics['mrr']:.4f}")
-    print(f"  Refusal Accuracy {metrics['refusal_accuracy']:.4f}  "
-          f"(on {metrics['num_unanswerable']} unanswerable)")
+    print(f"  Refusal Accuracy {metrics['refusal_accuracy']:.4f} "
+          f"({metrics['num_unanswerable']} unanswerable)")
 
 
 def print_ragas(summary: Dict[str, float]):
-    print("\n" + "-" * 60)
-    print("  GENERATION METRICS (RAGAS)")
-    print("-" * 60)
+    print(f"\n{'='*60}\n  RAGAS METRICS\n{'='*60}")
     for name, score in summary.items():
         print(f"  {name:20s} {score:.4f}")
 
-
-# ======================================================================
-# Main
-# ======================================================================
-
 async def main():
     parser = argparse.ArgumentParser(description="RAG evaluation")
-    parser.add_argument("--dataset", default=DEFAULT_DATASET,
-                        help=f"Dataset path (default: {DEFAULT_DATASET})")
-    parser.add_argument("--limit", type=int, help="Limit number of test cases")
-    parser.add_argument("--top-k", type=int, default=6, dest="top_k",
-                        help="Top-k chunks to retrieve (default: 6)")
-    parser.add_argument("--no-ragas", action="store_true",
-                        help="Skip RAGAS (fast mode — retrieval metrics only)")
+    parser.add_argument("--dataset", default=DEFAULT_DATASET, help=f"Dataset path (default: {DEFAULT_DATASET})")
+    parser.add_argument("--limit", type=int, help="Limit test cases")
+    parser.add_argument("--top-k", type=int, default=6, dest="top_k", help="Top-k chunks (default: 6)")
+    parser.add_argument("--no-ragas", action="store_true", help="Skip RAGAS (retrieval only)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-    # ---------- Load dataset ----------
     if not os.path.exists(args.dataset):
         print(f"ERROR: dataset not found: {args.dataset}")
         return
+    
     with open(args.dataset, encoding="utf-8") as f:
-        dataset = json.load(f)
-    test_cases = dataset["test_cases"]
+        test_cases = json.load(f)["test_cases"]
     if args.limit:
-        test_cases = test_cases[: args.limit]
+        test_cases = test_cases[:args.limit]
 
-    print("\n" + "=" * 60)
+    print(f"\n{'='*60}")
     print("  RAG EVALUATION")
     print(f"  Dataset:   {args.dataset}")
     print(f"  Cases:     {len(test_cases)}")
     print(f"  Top-k:     {args.top_k}")
     print(f"  LLM:       {settings.OLLAMA_MODEL}")
     print(f"  Embedding: {settings.EMBEDDING_MODEL}")
-    print("=" * 60 + "\n")
+    print(f"{'='*60}\n")
 
-    # ---------- Initialize backend services ----------
     print("1. Initializing services...")
     await initialize_services()
     retrieval_service = get_service("retrieval")
     llm_service = get_service("llm")
     print("   Done.\n")
 
-    # ---------- Run pipeline ----------
     print("2. Running RAG pipeline...")
     samples = await run_pipeline(test_cases, retrieval_service, llm_service, args.top_k)
     ok = [s for s in samples if s["error"] is None]
     print(f"   Done. {len(ok)}/{len(samples)} samples collected.\n")
 
-    # ---------- Retrieval metrics ----------
     print("3. Computing retrieval metrics...")
     retrieval_metrics = compute_retrieval_metrics(ok, k=args.top_k).to_dict()
     print_retrieval(retrieval_metrics)
 
-    # ---------- Generation refusal accuracy ----------
     unanswerable = [s for s in ok if not s["has_answer"]]
     gen_refusal = None
     if unanswerable:
         correct = sum(1 for s in unanswerable if is_refusal(s["answer"]))
         gen_refusal = round(correct / len(unanswerable), 4)
-        print(f"\n  Generation refusal on unanswerable: {gen_refusal:.4f} "
-              f"({correct}/{len(unanswerable)})")
+        print(f"\n  Gen refusal accuracy: {gen_refusal:.4f} ({correct}/{len(unanswerable)})")
 
-    # ---------- RAGAS metrics ----------
     ragas_summary = None
     if not args.no_ragas:
-        print("\n4. Running RAGAS (slow — LLM judge)...")
+        print("\n4. Running RAGAS (slow - LLM judge)...")
         ragas_inputs = [
             {
                 "user_input": s["question"],
@@ -229,10 +181,10 @@ async def main():
             ragas_summary = result["summary"]
             print_ragas(ragas_summary)
 
-    # ---------- Save report ----------
     os.makedirs(REPORT_DIR, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path = os.path.join(REPORT_DIR, f"report_{ts}.json")
+    
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump({
             "timestamp": datetime.utcnow().isoformat(),
@@ -248,9 +200,9 @@ async def main():
             "ragas_metrics": ragas_summary,
         }, f, indent=2, ensure_ascii=False)
 
-    print("\n" + "=" * 60)
+    print(f"\n{'='*60}")
     print(f"  Report saved: {report_path}")
-    print("=" * 60 + "\n")
+    print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":
