@@ -36,7 +36,14 @@ async def initialize_services():
 
     # Retrieval service (depends on embedding + vector_store)
     from backend.services.retrieval import RetrievalService
-    _services["retrieval"] = RetrievalService()
+    retrieval = RetrievalService()
+    if retrieval.reranker is not None:
+        await retrieval.reranker.initialize()
+    _services["retrieval"] = retrieval
+
+    # Ingestion service (depends on embedding + vector_store)
+    from backend.services.ingestion import DocumentIngestionService
+    _services["ingestion"] = DocumentIngestionService()
 
     # Conversation manager (singleton)
     from backend.services.conversation import ConversationManager

@@ -9,7 +9,6 @@ from typing import Optional
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from backend.config import settings
 from backend.core.exceptions import IngestionError
-from backend.services.ingestion import DocumentIngestionService
 from backend.services import get_service
 from backend.api.v1.schemas.documents import (
     DocumentMetadata,
@@ -81,7 +80,7 @@ async def upload_document(
     # Process document
     try:
         logger.info("Processing document: %s", file.filename)
-        ingestion_service = DocumentIngestionService()
+        ingestion_service = get_service("ingestion")
         result = await ingestion_service.process_document(file_path, metadata)
 
         logger.info("Document processed: %s (%d chunks)", file.filename, result.get("chunks_count", 0))

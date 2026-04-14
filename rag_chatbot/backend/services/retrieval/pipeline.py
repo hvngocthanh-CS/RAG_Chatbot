@@ -9,6 +9,7 @@ Implements the retrieval pipeline:
   5. Cross-encoder reranking
   6. Return top-k results
 """
+import asyncio
 import logging
 from typing import List, Dict, Any, Optional
 
@@ -65,25 +66,30 @@ class RetrievalService:
         query_embedding = await self.embedding_service.embed_query(retrieval_query)
         search_filters = filters or {}
 
-        vector_results = await self.vector_store.search(
-            query_embedding=query_embedding,
-            top_k=retrieval_k,
-            filters=search_filters,
-        )
-
-        # Step 3: Hybrid search — keyword (BM25) + RRF fusion
+        # Step 3: Run vector + keyword search in parallel when hybrid is on
         if settings.USE_HYBRID_SEARCH:
-            keyword_results = await self.vector_store.keyword_search(
-                query=retrieval_query,
-                top_k=retrieval_k,
-                filters=search_filters,
+            vector_results, keyword_results = await asyncio.gather(
+                self.vector_store.search(
+                    query_embedding=query_embedding,
+                    top_k=retrieval_k,
+                    filters=search_filters,
+                ),
+                self.vector_store.keyword_search(
+                    query=retrieval_query,
+                    top_k=retrieval_k,
+                    filters=search_filters,
+                ),
             )
             combined_results = self._reciprocal_rank_fusion(
                 vector_results, keyword_results,
                 alpha=settings.HYBRID_ALPHA,
             )
         else:
-            combined_results = vector_results
+            combined_results = await self.vector_store.search(
+                query_embedding=query_embedding,
+                top_k=retrieval_k,
+                filters=search_filters,
+            )
 
         # Step 4: Score threshold filtering (AFTER fusion)
         if combined_results:

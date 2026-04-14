@@ -33,7 +33,7 @@ from typing import Any, Dict, List
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.config import settings
-from backend.services import initialize_services
+from backend.services import initialize_services, get_service
 from backend.services.retrieval import RetrievalService
 from backend.services.llm import LLMService
 
@@ -186,9 +186,8 @@ async def main():
     # ---------- Initialize backend services ----------
     print("1. Initializing services...")
     await initialize_services()
-    retrieval_service = RetrievalService()
-    llm_service = LLMService()
-    await llm_service.initialize()
+    retrieval_service = get_service("retrieval")
+    llm_service = get_service("llm")
     print("   Done.\n")
 
     # ---------- Run pipeline ----------

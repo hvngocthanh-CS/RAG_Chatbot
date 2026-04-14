@@ -2,6 +2,7 @@
 Reranker Service.
 Uses cross-encoder models to improve retrieval accuracy.
 """
+import asyncio
 import math
 import logging
 from typing import List, Dict, Any
@@ -69,7 +70,9 @@ class RerankerService:
 
         try:
             pairs = [(query, chunk.get("text") or chunk.get("content", "")) for chunk in chunks]
-            scores = self.model.predict(pairs, show_progress_bar=False)
+            scores = await asyncio.to_thread(
+                self.model.predict, pairs, show_progress_bar=False
+            )
 
             def _sigmoid(x: float) -> float:
                 return 1.0 / (1.0 + math.exp(-x))
