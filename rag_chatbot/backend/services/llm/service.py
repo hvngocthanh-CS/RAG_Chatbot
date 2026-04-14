@@ -187,12 +187,18 @@ class LLMService:
                     content = content[:300] + "..."
                 messages.append({"role": turn["role"], "content": content})
 
-        user_message = f"""Answer based ONLY on the context below. If the answer is not in the context, say "Not found in documents."
-
-CONTEXT:
+        user_message = f"""CONTEXT:
 {context}
 
+---
 QUESTION: {question}
+
+INSTRUCTIONS:
+1. Identify ALL sub-questions and conditions in the QUESTION. List them.
+2. For conditional questions ("if X, can Y?"), evaluate each condition separately: MET or NOT MET with citation.
+3. Answer each sub-question with [Source N: filename, pX] citations. Never copy raw table/row labels as citations.
+4. If something is not in context, name which sources you checked.
+5. Do NOT repeat the same fact in multiple sections.
 
 ANSWER:"""
         messages.append({"role": "user", "content": user_message})

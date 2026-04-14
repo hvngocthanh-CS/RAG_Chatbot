@@ -21,7 +21,15 @@ Ref: https://huggingface.co/BAAI/bge-base-en-v1.5
 import asyncio
 import logging
 import time
+import os
 from typing import List
+
+# Set cache directories BEFORE importing models
+os.environ.setdefault("HF_HOME", "./models")
+os.environ.setdefault("TRANSFORMERS_CACHE", "./models")
+os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", "./models")
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "180")
+os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "180")
 
 from backend.config import settings
 
@@ -53,14 +61,27 @@ class EmbeddingService:
     # ------------------------------------------------------------------
 
     async def initialize(self):
-        """Load the embedding model (offloaded to thread, 5-min timeout)."""
+        """Load the embedding model from cache (must be preloaded).
+        
+        ⚠️  REQUIRED: Models must be cached first!
+            Run: python setup_embedding_models.py
+        """
         if self._initialized:
             return
+
+        # Verify models are cached locally
+        models_dir = os.getenv("SENTENCE_TRANSFORMERS_HOME", "./models")
+        if not os.path.exists(models_dir):
+            raise RuntimeError(
+                f"\n❌ ERROR: Models directory not found: {models_dir}\n"
+                f"   Please run first:\n"
+                f"   python setup_embedding_models.py\n"
+            )
 
         try:
             await asyncio.wait_for(
                 asyncio.to_thread(self._load_model_sync),
-                timeout=300,
+                timeout=600,  # 10 minutes for loading from cache
             )
             self._initialized = True
             logger.info(
@@ -71,7 +92,9 @@ class EmbeddingService:
             )
         except asyncio.TimeoutError:
             raise RuntimeError(
-                "Embedding model initialization timed out (>300 s)"
+                "Embedding model failed to load from cache (>600 s). "
+                "Please ensure models are properly cached by running: "
+                "python setup_embedding_models.py"
             )
         except Exception as e:
             logger.error("Failed to initialize embedding service: %s", e, exc_info=True)

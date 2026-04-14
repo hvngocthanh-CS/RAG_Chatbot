@@ -10,6 +10,7 @@ Usage:
 """
 import os
 import sys
+import uuid
 import asyncio
 import argparse
 import logging
@@ -35,8 +36,6 @@ async def ingest_file(
     tags: list = None
 ):
     """Ingest a single file."""
-    import uuid
-
     file_path = Path(file_path)
 
     if not file_path.exists():

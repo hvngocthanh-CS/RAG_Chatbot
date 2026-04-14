@@ -10,7 +10,31 @@ from dataclasses import dataclass, asdict
 from typing import List, Dict, Any, Optional
 
 from backend.config import settings
+# RAGAS imports (optional - only needed for generation metrics)
+try:
+    from ragas import evaluate as ragas_evaluate
+    from ragas.llms import LangchainLLMWrapper
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+    from ragas.dataset_schema import SingleTurnSample, EvaluationDataset
+    from ragas.run_config import RunConfig
+    from ragas.metrics import Faithfulness, ResponseRelevancy
+    
+    # Context metrics (name varies by RAGAS version)
+    try:
+        from ragas.metrics import LLMContextPrecisionWithoutReference as ContextPrecision
+        from ragas.metrics import LLMContextRecallWithoutReference as ContextRecall
+    except ImportError:
+        from ragas.metrics import ContextPrecision, ContextRecall
+    
+    RAGAS_AVAILABLE = True
+except ImportError:
+    RAGAS_AVAILABLE = False
 
+try:
+    from langchain_ollama import ChatOllama
+    from langchain_huggingface import HuggingFaceEmbeddings
+except ImportError:
+    pass
 
 # ======================================================================
 # Retrieval metrics (IR) — pure functions
@@ -103,73 +127,39 @@ def compute_retrieval_metrics(runs: List[Dict[str, Any]], k: int) -> RetrievalMe
 # ======================================================================
 
 class RAGASEvaluator:
-    """
-    Evaluates answer quality with RAGAS:
-      - Faithfulness       : answer grounded in context?
-      - Answer Relevancy   : answer addresses the question?
-      - Context Precision  : retrieved chunks relevant & well-ranked?
-      - Context Recall     : all needed context retrieved?
-
-    Uses Ollama as the judge LLM (no OpenAI key needed).
-    """
+    """Evaluates answer quality with RAGAS (Faithfulness, Relevancy, Context Precision/Recall)."""
 
     def __init__(self, model_name: Optional[str] = None):
+        if not RAGAS_AVAILABLE:
+            raise ImportError("RAGAS not installed. Run: pip install ragas langchain-ollama langchain-huggingface")
         self._model_name = model_name or settings.OLLAMA_MODEL
         self._llm = None
         self._embeddings = None
 
     def _get_llm(self):
-        if self._llm is not None:
-            return self._llm
-        from ragas.llms import LangchainLLMWrapper
-        from langchain_ollama import ChatOllama
-
-        base_url = settings.OLLAMA_BASE_URL.replace("/v1", "")
-        ollama_llm = ChatOllama(model=self._model_name, base_url=base_url)
-        self._llm = LangchainLLMWrapper(ollama_llm)
+        if self._llm is None:
+            base_url = settings.OLLAMA_BASE_URL.replace("/v1", "")
+            self._llm = LangchainLLMWrapper(ChatOllama(model=self._model_name, base_url=base_url))
         return self._llm
 
     def _get_embeddings(self):
-        if self._embeddings is not None:
-            return self._embeddings
-        from ragas.embeddings import LangchainEmbeddingsWrapper
-        from langchain_huggingface import HuggingFaceEmbeddings
-        
-        hf_embeddings = HuggingFaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
-        self._embeddings = LangchainEmbeddingsWrapper(hf_embeddings)
+        if self._embeddings is None:
+            self._embeddings = LangchainEmbeddingsWrapper(
+                HuggingFaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
+            )
         return self._embeddings
 
     async def evaluate(self, samples: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Evaluate samples with RAGAS.
-        
-        Each sample needs: user_input, response, retrieved_contexts, reference
-        """
-        from ragas import evaluate
-        from ragas.dataset_schema import SingleTurnSample, EvaluationDataset
-        from ragas.run_config import RunConfig
-        from ragas.metrics import Faithfulness, ResponseRelevancy
-        
-        # Context metrics (handle version differences)
-        context_precision_cls = context_recall_cls = None
-        try:
-            from ragas.metrics import LLMContextPrecisionWithoutReference as CPrecision
-            from ragas.metrics import LLMContextRecallWithoutReference as CRecall
-            context_precision_cls, context_recall_cls = CPrecision, CRecall
-        except ImportError:
-            try:
-                from ragas.metrics import ContextPrecision, ContextRecall
-                context_precision_cls, context_recall_cls = ContextPrecision, ContextRecall
-            except ImportError:
-                pass
-
+        """Evaluate samples with RAGAS. Each sample needs: user_input, response, retrieved_contexts, reference."""
         llm = self._get_llm()
         embeddings = self._get_embeddings()
         
-        metrics = [Faithfulness(llm=llm), ResponseRelevancy(llm=llm, embeddings=embeddings)]
-        if context_precision_cls:
-            metrics.append(context_precision_cls(llm=llm))
-        if context_recall_cls:
-            metrics.append(context_recall_cls(llm=llm))
+        metrics = [
+            Faithfulness(llm=llm), 
+            ResponseRelevancy(llm=llm, embeddings=embeddings),
+            ContextPrecision(llm=llm),
+            ContextRecall(llm=llm),
+        ]
 
         dataset = EvaluationDataset(samples=[
             SingleTurnSample(
@@ -180,7 +170,7 @@ class RAGASEvaluator:
             ) for s in samples
         ])
 
-        result = evaluate(dataset=dataset, metrics=metrics, run_config=RunConfig(timeout=300, max_retries=3))
+        result = ragas_evaluate(dataset=dataset, metrics=metrics, run_config=RunConfig(timeout=300, max_retries=3))
         
         df = result.to_pandas()
         skip = {"user_input", "response", "retrieved_contexts", "reference"}

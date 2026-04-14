@@ -17,6 +17,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _build_source_chunks(chunks: List[dict]) -> List[dict]:
+    """Build source metadata from retrieved chunks."""
+    return [
+        {
+            "content": chunk["content"][:500],
+            "document_id": chunk["metadata"].get("document_id", ""),
+            "document_name": chunk["metadata"].get("filename", ""),
+            "page_number": chunk["metadata"].get("page_number"),
+            "chunk_type": chunk["metadata"].get("chunk_type", "text"),
+            "relevance_score": chunk.get("score", 0.0),
+        }
+        for chunk in chunks
+    ]
+
+
 @router.post("/chat")
 async def chat(request: ChatRequest):
     """Send a question and receive an answer based on indexed documents."""
@@ -80,17 +95,7 @@ async def chat(request: ChatRequest):
 
     processing_time = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
 
-    sources = [
-        SourceChunk(
-            content=chunk["content"][:500],
-            document_id=chunk["metadata"].get("document_id", ""),
-            document_name=chunk["metadata"].get("filename", ""),
-            page_number=chunk["metadata"].get("page_number"),
-            chunk_type=chunk["metadata"].get("chunk_type", "text"),
-            relevance_score=chunk.get("score", 0.0),
-        )
-        for chunk in retrieved_chunks
-    ]
+    sources = [SourceChunk(**s) for s in _build_source_chunks(retrieved_chunks)]
 
     response = ChatResponse(
         answer=answer,
@@ -138,17 +143,7 @@ async def _stream_response(
     conversation_manager,
 ):
     """SSE generator for streaming response."""
-    sources = [
-        {
-            "content": chunk["content"][:500],
-            "document_id": chunk["metadata"].get("document_id", ""),
-            "document_name": chunk["metadata"].get("filename", ""),
-            "page_number": chunk["metadata"].get("page_number"),
-            "chunk_type": chunk["metadata"].get("chunk_type", "text"),
-            "relevance_score": chunk.get("score", 0.0),
-        }
-        for chunk in retrieved_chunks
-    ]
+    sources = _build_source_chunks(retrieved_chunks)
     yield f"data: {json.dumps({'type': 'sources', 'sources': sources, 'conversation_id': conversation_id})}\n\n"
 
     full_answer = ""

@@ -28,10 +28,7 @@ class ConversationManager:
     _conversations: OrderedDict = OrderedDict()
     _max_conversations: int = 1000
     _max_messages_per_conversation: int = 50
-    
-    def __init__(self):
-        pass
-    
+
     def create_conversation(self) -> str:
         """
         Create a new conversation and return its ID.

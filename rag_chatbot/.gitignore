@@ -129,6 +129,9 @@ fe_rag_chatbot/.vs/
 *.user
 *.suo
 
+models/
+*.safetensors
+
 # Test outputs
 evaluation_results.json
 test_results/

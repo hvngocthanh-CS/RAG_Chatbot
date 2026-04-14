@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./data/uploads"
     PROCESSED_DIR: str = "./data/processed"
 
+    # --- HuggingFace Model Cache ---
+    HF_HOME: str = "./models"
+    SENTENCE_TRANSFORMERS_HOME: str = "./models"
+    TRANSFORMERS_CACHE: str = "./models"
+    HF_HUB_DOWNLOAD_TIMEOUT: int = 180
+    HF_HUB_ETAG_TIMEOUT: int = 180
+
     # --- Logging ---
     LOG_LEVEL: str = "INFO"
     # "json" for production (Docker/K8s log aggregators); "console" for local dev.

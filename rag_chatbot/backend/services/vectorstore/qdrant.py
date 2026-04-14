@@ -13,9 +13,15 @@ Design decisions:
 """
 import asyncio
 import logging
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone
 import uuid
+from datetime import datetime, timezone
+from typing import List, Dict, Any, Optional
+
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance, VectorParams, PointStruct, 
+    Filter, FieldCondition, MatchValue,
+)
 
 from backend.config import settings
 
@@ -110,9 +116,6 @@ class VectorStoreService:
         self._bm25_index = _BM25Index()
 
     async def initialize(self):
-        from qdrant_client import QdrantClient
-        from qdrant_client.models import Distance, VectorParams
-
         def _init_sync():
             if settings.QDRANT_API_KEY:
                 client = QdrantClient(
@@ -181,8 +184,6 @@ class VectorStoreService:
     # --- write ---
 
     async def add_chunks(self, chunks: List[Dict[str, Any]], metadata: Dict[str, Any]):
-        from qdrant_client.models import PointStruct
-
         if not chunks:
             return
 
@@ -262,8 +263,6 @@ class VectorStoreService:
     # --- delete ---
 
     async def delete_document(self, document_id: str) -> bool:
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
-
         try:
             f = Filter(must=[
                 FieldCondition(key="document_id", match=MatchValue(value=document_id)),
@@ -329,8 +328,6 @@ class VectorStoreService:
         return list(documents.values())[skip : skip + limit]
 
     async def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
-
         f = Filter(must=[
             FieldCondition(key="document_id", match=MatchValue(value=document_id)),
         ])
@@ -379,12 +376,11 @@ class VectorStoreService:
     def _build_filter(filters: Optional[Dict[str, Any]]):
         if not filters:
             return None
-
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
-
         conditions = []
         for key, value in filters.items():
-            if value is not None and value != "":
-                conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
+            # Skip None, empty strings, empty dicts, empty lists
+            if value is None or value == "" or (isinstance(value, (dict, list)) and not value):
+                continue
+            conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
 
         return Filter(must=conditions) if conditions else None
