@@ -1,0 +1,608 @@
+{
+  "name": "techviet_multiturn_v1",
+  "description": "Multi-turn evaluation dataset for TechViet Solutions RAG. Tests coreference resolution, follow-up drill-down, topic shift, multi-hop reasoning across turns, comparison, temporal reasoning, clarification, and refusal on unanswerable follow-ups.",
+  "version": "1.0",
+  "document_corpus": "../../../data/techviet_docs/ (30 PDF documents)",
+  "total_conversations": 16,
+  "total_turns": 61,
+  "category_distribution": {
+    "coreference_resolution": 3,
+    "follow_up_drilldown": 3,
+    "topic_shift": 2,
+    "multi_hop_reasoning": 2,
+    "comparison_across_turns": 2,
+    "temporal_reasoning": 1,
+    "clarification": 1,
+    "negation_refusal": 1,
+    "self_correction": 1
+  },
+  "conversations": [
+    {
+      "conversation_id": "mt_001",
+      "category": "coreference_resolution",
+      "difficulty": "medium",
+      "description": "User asks about an incident then uses pronouns to drill down.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "Tell me about incident INC-2026-0042.",
+          "expected_answer": "INC-2026-0042 was a P1 Critical production database outage on the Phoenix Platform on February 18, 2026, lasting 2 hours 47 minutes (14:23-17:10 ICT).",
+          "source_documents": ["09_Incident_Postmortem_INC0042.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "What caused it?",
+          "expected_answer": "The root cause was a faulty database migration script that locked primary tables during peak hours.",
+          "source_documents": ["09_Incident_Postmortem_INC0042.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["coreference", "it refers to INC-2026-0042"]
+        },
+        {
+          "turn_id": 3,
+          "user": "How long was it down?",
+          "expected_answer": "The outage lasted 2 hours 47 minutes (14:23 to 17:10 ICT).",
+          "source_documents": ["09_Incident_Postmortem_INC0042.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["coreference"]
+        },
+        {
+          "turn_id": 4,
+          "user": "What action items came out of the postmortem?",
+          "expected_answer": "Action items included adding migration pre-flight checks, enforcing maintenance-window-only schema changes, and improving rollback procedures.",
+          "source_documents": ["09_Incident_Postmortem_INC0042.pdf"],
+          "expected_pages": [2, 3],
+          "has_answer": true,
+          "tests": ["follow_up"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_002",
+      "category": "coreference_resolution",
+      "difficulty": "medium",
+      "description": "Coreference with pronouns and demonstratives on technical topic.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "Which vector database does TechViet use for production?",
+          "expected_answer": "TechViet uses Qdrant as the primary production vector database, as documented in ADR-001.",
+          "source_documents": ["08_Architecture_Decision_Records.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "Why was it chosen?",
+          "expected_answer": "Qdrant was chosen to handle large production workloads (~10M vectors for ChatAssist, ~5M for ShopSmart Reco, ~2M for LogiFlow AI) with low latency.",
+          "source_documents": ["08_Architecture_Decision_Records.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["coreference", "it = Qdrant"]
+        },
+        {
+          "turn_id": 3,
+          "user": "Were any alternatives considered?",
+          "expected_answer": "ADR-001 considered alternatives such as Pinecone, Weaviate, and Milvus before selecting Qdrant.",
+          "source_documents": ["08_Architecture_Decision_Records.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["follow_up"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_003",
+      "category": "coreference_resolution",
+      "difficulty": "hard",
+      "description": "Nested coreference: user refers to entity mentioned in assistant response.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "What deployment windows does TechViet enforce?",
+          "expected_answer": "Deployments are only permitted Monday-Thursday, 10:00 AM to 4:00 PM ICT. Friday deployments require VP Engineering approval.",
+          "source_documents": ["14_Operations_Runbook.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "Who can approve exceptions to that?",
+          "expected_answer": "VP Engineering approval is required for Friday deployments or any exceptions outside the standard window.",
+          "source_documents": ["14_Operations_Runbook.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["coreference", "that = deployment windows"]
+        },
+        {
+          "turn_id": 3,
+          "user": "What's the escalation path if something breaks during a deploy?",
+          "expected_answer": "The runbook escalation path goes on-call engineer -> team lead -> VP Engineering, with SRE paged for P1/P2 incidents.",
+          "source_documents": ["14_Operations_Runbook.pdf"],
+          "expected_pages": [2, 3],
+          "has_answer": true,
+          "tests": ["follow_up"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_004",
+      "category": "follow_up_drilldown",
+      "difficulty": "medium",
+      "description": "User progressively drills into a policy.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "What is TechViet's travel expense policy?",
+          "expected_answer": "The policy governs reimbursable travel expenses including flights, lodging, meals, and ground transport with approval tiers based on cost.",
+          "source_documents": ["07_Travel_Expense_Policy.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "What's the daily meal allowance for domestic trips?",
+          "expected_answer": "Domestic trips have a specific per-diem meal allowance defined in the policy (refer to Section on meal allowances for exact VND amount).",
+          "source_documents": ["07_Travel_Expense_Policy.pdf"],
+          "expected_pages": [2],
+          "has_answer": true,
+          "tests": ["drilldown"]
+        },
+        {
+          "turn_id": 3,
+          "user": "And for international trips?",
+          "expected_answer": "International trips have a higher per-diem allowance than domestic, with region-specific rates.",
+          "source_documents": ["07_Travel_Expense_Policy.pdf"],
+          "expected_pages": [2, 3],
+          "has_answer": true,
+          "tests": ["comparison", "implicit comparison with previous turn"]
+        },
+        {
+          "turn_id": 4,
+          "user": "What receipts do I need to submit?",
+          "expected_answer": "All expenses above a minimum threshold require original receipts submitted via the expense management system within the stated deadline.",
+          "source_documents": ["07_Travel_Expense_Policy.pdf"],
+          "expected_pages": [3, 4],
+          "has_answer": true,
+          "tests": ["drilldown"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_005",
+      "category": "follow_up_drilldown",
+      "difficulty": "hard",
+      "description": "Drill down into onboarding with increasing specificity.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "Walk me through the new employee onboarding process.",
+          "expected_answer": "Onboarding spans Day 1, Week 1, and Month 1 milestones including account setup, buddy pairing, training modules, and 30-day review.",
+          "source_documents": ["03_Onboarding_Guide.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "What happens on Day 1 specifically?",
+          "expected_answer": "Day 1 covers HR paperwork, laptop and badge pickup, SSO account provisioning, security orientation, and buddy introduction.",
+          "source_documents": ["03_Onboarding_Guide.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["drilldown"]
+        },
+        {
+          "turn_id": 3,
+          "user": "What SSO access is provisioned by default?",
+          "expected_answer": "Default SSO provisioning includes email, Slack, GitHub Enterprise, Jira, Confluence, and role-based access to internal tools.",
+          "source_documents": ["03_Onboarding_Guide.pdf", "02_IT_Security_Policy.pdf"],
+          "expected_pages": [2],
+          "has_answer": true,
+          "tests": ["drilldown", "multi_hop"]
+        },
+        {
+          "turn_id": 4,
+          "user": "Is GitHub access limited by role?",
+          "expected_answer": "Yes, GitHub Enterprise access follows least-privilege with repo access scoped by team and role per the IT Security Policy.",
+          "source_documents": ["02_IT_Security_Policy.pdf"],
+          "expected_pages": [2, 3],
+          "has_answer": true,
+          "tests": ["drilldown", "topic_bridge"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_006",
+      "category": "follow_up_drilldown",
+      "difficulty": "medium",
+      "description": "Follow-ups into ChatAssist product details.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "What is ChatAssist?",
+          "expected_answer": "ChatAssist is TechViet's AI-powered customer support assistant product for enterprise clients.",
+          "source_documents": ["06_ChatAssist_PRD.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "What's new in the v2.3 release?",
+          "expected_answer": "ChatAssist v2.3 release notes cover new features, performance improvements, and bug fixes for that version.",
+          "source_documents": ["19_ChatAssist_Release_Notes_v2.3.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["topic_bridge", "cross-doc follow-up"]
+        },
+        {
+          "turn_id": 3,
+          "user": "How many vectors does its production index hold?",
+          "expected_answer": "ChatAssist's production vector index holds approximately 10M vectors per ADR-001.",
+          "source_documents": ["08_Architecture_Decision_Records.pdf", "06_ChatAssist_PRD.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["coreference", "multi_hop"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_007",
+      "category": "topic_shift",
+      "difficulty": "hard",
+      "description": "User switches topic mid-conversation; system must not over-rely on prior history.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "What are the standard working hours at TechViet?",
+          "expected_answer": "Monday-Friday, 8:30 AM to 5:30 PM ICT, with a one-hour lunch break. 40-hour work week.",
+          "source_documents": ["01_Employee_Handbook.pdf"],
+          "expected_pages": [2],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "Actually, forget that — what's the GDPR data retention period for customer PII?",
+          "expected_answer": "Customer PII retention follows GDPR and PDPA requirements as detailed in the Data Privacy Policy and Compliance Handbook, typically retained only as long as necessary for the stated purpose.",
+          "source_documents": ["11_Data_Privacy_Policy.pdf", "28_Compliance_GDPR_PDPA_Handbook.pdf"],
+          "expected_pages": [2, 3],
+          "has_answer": true,
+          "tests": ["topic_shift", "must not retrieve HR docs"]
+        },
+        {
+          "turn_id": 3,
+          "user": "What's the breach notification deadline?",
+          "expected_answer": "GDPR requires notification to the supervisory authority within 72 hours of becoming aware of a breach.",
+          "source_documents": ["11_Data_Privacy_Policy.pdf", "28_Compliance_GDPR_PDPA_Handbook.pdf"],
+          "expected_pages": [3, 4],
+          "has_answer": true,
+          "tests": ["coreference", "72-hour rule"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_008",
+      "category": "topic_shift",
+      "difficulty": "hard",
+      "description": "Abrupt topic change from technical to HR.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "Explain TechViet's microservices architecture.",
+          "expected_answer": "TechViet follows a microservices architecture with service-per-bounded-context, API gateway, service mesh, and independent deployability.",
+          "source_documents": ["23_Microservices_Architecture_Guide.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "What's the bereavement leave policy?",
+          "expected_answer": "Bereavement leave is governed by the Employee Handbook / Benefits Guide, typically providing several paid days for immediate family loss.",
+          "source_documents": ["01_Employee_Handbook.pdf", "24_Employee_Benefits_Complete_Guide.pdf"],
+          "expected_pages": [3, 4],
+          "has_answer": true,
+          "tests": ["topic_shift", "must retrieve HR not eng docs"]
+        },
+        {
+          "turn_id": 3,
+          "user": "How do I request it?",
+          "expected_answer": "Bereavement leave is requested through the HR portal / manager with supporting documentation as required by the Employee Handbook.",
+          "source_documents": ["01_Employee_Handbook.pdf", "24_Employee_Benefits_Complete_Guide.pdf"],
+          "expected_pages": [3, 4],
+          "has_answer": true,
+          "tests": ["coreference", "it = bereavement leave"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_009",
+      "category": "multi_hop_reasoning",
+      "difficulty": "hard",
+      "description": "Answer requires bridging info from multiple docs across turns.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "What are TechViet's Q1 2026 OKRs for the engineering org?",
+          "expected_answer": "Q1 2026 engineering OKRs cover reliability, velocity, and product delivery targets as detailed in the OKR document.",
+          "source_documents": ["15_OKR_Performance_Q1_2026.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "Which active projects contribute to those OKRs?",
+          "expected_answer": "Active Q1 2026 projects include Phoenix Platform, ChatAssist v2.3, Cloud Migration, and other initiatives tracked in the Q1 Project Status report.",
+          "source_documents": ["05_Q1_2026_Project_Status.pdf", "15_OKR_Performance_Q1_2026.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["multi_hop"]
+        },
+        {
+          "turn_id": 3,
+          "user": "Did the INC-2026-0042 incident put any of those OKRs at risk?",
+          "expected_answer": "INC-2026-0042 affected Phoenix Platform which is a Q1 OKR contributor; the postmortem action items and status report note the reliability impact.",
+          "source_documents": ["05_Q1_2026_Project_Status.pdf", "09_Incident_Postmortem_INC0042.pdf", "15_OKR_Performance_Q1_2026.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["multi_hop", "3-doc synthesis"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_010",
+      "category": "multi_hop_reasoning",
+      "difficulty": "hard",
+      "description": "Synthesize security audit findings with policy.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "What were the key findings of the 2025 annual security audit?",
+          "expected_answer": "The 2025 annual security audit identified findings across access control, data protection, and incident response maturity.",
+          "source_documents": ["22_Annual_Security_Audit_Report_2025.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "Which of those findings are addressed in the current IT Security Policy?",
+          "expected_answer": "The IT Security Policy addresses several audit findings including access control standards, password/SSO policy, and data handling controls.",
+          "source_documents": ["02_IT_Security_Policy.pdf", "22_Annual_Security_Audit_Report_2025.pdf"],
+          "expected_pages": [1, 2, 3],
+          "has_answer": true,
+          "tests": ["multi_hop"]
+        },
+        {
+          "turn_id": 3,
+          "user": "And which are still open gaps?",
+          "expected_answer": "Open gaps are findings not yet fully covered by policy updates, typically tracked as remediation items with owners and deadlines in the audit report.",
+          "source_documents": ["22_Annual_Security_Audit_Report_2025.pdf"],
+          "expected_pages": [3, 4],
+          "has_answer": true,
+          "tests": ["multi_hop", "inverse synthesis"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_011",
+      "category": "comparison_across_turns",
+      "difficulty": "medium",
+      "description": "User builds a comparison across turns.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "What are the engineering standards for code review?",
+          "expected_answer": "Engineering standards require at least one approving reviewer, passing CI, and adherence to style/test coverage rules before merge.",
+          "source_documents": ["04_Engineering_Standards.pdf"],
+          "expected_pages": [2, 3],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "How do those compare to the DevOps bootcamp recommendations?",
+          "expected_answer": "The DevOps bootcamp recommendations align with Engineering Standards but add CI/CD pipeline guidance, infrastructure-as-code, and observability practices.",
+          "source_documents": ["04_Engineering_Standards.pdf", "30_DevOps_Bootcamp_Training_Materials.pdf"],
+          "expected_pages": [2, 3],
+          "has_answer": true,
+          "tests": ["comparison", "multi_hop"]
+        },
+        {
+          "turn_id": 3,
+          "user": "Which one is mandatory?",
+          "expected_answer": "Engineering Standards are mandatory policy; DevOps Bootcamp materials are training recommendations.",
+          "source_documents": ["04_Engineering_Standards.pdf", "30_DevOps_Bootcamp_Training_Materials.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["coreference", "disambiguation"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_012",
+      "category": "comparison_across_turns",
+      "difficulty": "medium",
+      "description": "Compare SLA tiers via progressive follow-ups.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "What SLA tiers does TechViet offer to clients?",
+          "expected_answer": "The Client SLA Playbook defines multiple tiers (e.g., Standard, Premium, Enterprise) with distinct uptime, response time, and support commitments.",
+          "source_documents": ["16_Client_SLA_Playbook.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "What's the uptime guarantee for the top tier?",
+          "expected_answer": "The top (Enterprise) SLA tier typically guarantees the highest uptime, e.g., 99.95% or 99.99% depending on service.",
+          "source_documents": ["16_Client_SLA_Playbook.pdf"],
+          "expected_pages": [2],
+          "has_answer": true,
+          "tests": ["drilldown"]
+        },
+        {
+          "turn_id": 3,
+          "user": "And the difference from Standard?",
+          "expected_answer": "Standard tier has lower uptime (e.g., 99.5%), slower response SLAs, and fewer support channels compared to Enterprise.",
+          "source_documents": ["16_Client_SLA_Playbook.pdf"],
+          "expected_pages": [2, 3],
+          "has_answer": true,
+          "tests": ["comparison", "coreference"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_013",
+      "category": "temporal_reasoning",
+      "difficulty": "hard",
+      "description": "Temporal sequence across multiple events.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "When did TechViet start its cloud migration?",
+          "expected_answer": "The Cloud Migration Strategy document defines the timeline and phases for the migration program.",
+          "source_documents": ["21_Cloud_Migration_Strategy.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["temporal"]
+        },
+        {
+          "turn_id": 2,
+          "user": "Was the Phoenix Platform incident before or after the migration completed?",
+          "expected_answer": "INC-2026-0042 (Feb 18, 2026) occurred during the ongoing cloud migration program per the migration strategy timeline.",
+          "source_documents": ["21_Cloud_Migration_Strategy.pdf", "09_Incident_Postmortem_INC0042.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["temporal", "multi_hop"]
+        },
+        {
+          "turn_id": 3,
+          "user": "What's the next major milestone on the 2026 product roadmap?",
+          "expected_answer": "The 2026 Product Roadmap lists upcoming milestones per quarter including product launches and platform upgrades.",
+          "source_documents": ["29_Product_Roadmap_2026.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["temporal", "topic_bridge"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_014",
+      "category": "clarification",
+      "difficulty": "medium",
+      "description": "User asks ambiguous question then clarifies.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "Tell me about the pipeline.",
+          "expected_answer": "There are multiple pipelines documented - CI/CD pipelines (Engineering Standards, DevOps) and data engineering pipelines. Please clarify which you mean.",
+          "source_documents": ["04_Engineering_Standards.pdf", "26_Data_Engineering_Pipeline_Manual.pdf", "30_DevOps_Bootcamp_Training_Materials.pdf"],
+          "expected_pages": [1],
+          "has_answer": true,
+          "tests": ["ambiguous"]
+        },
+        {
+          "turn_id": 2,
+          "user": "I meant the data engineering pipeline.",
+          "expected_answer": "The Data Engineering Pipeline Manual describes ingestion, transformation, storage, and serving stages with tooling per stage.",
+          "source_documents": ["26_Data_Engineering_Pipeline_Manual.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["clarification"]
+        },
+        {
+          "turn_id": 3,
+          "user": "What tools are used for ingestion?",
+          "expected_answer": "Ingestion uses tools such as Kafka, Airbyte, or similar as documented in the Data Engineering Pipeline Manual.",
+          "source_documents": ["26_Data_Engineering_Pipeline_Manual.pdf"],
+          "expected_pages": [2, 3],
+          "has_answer": true,
+          "tests": ["drilldown"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_015",
+      "category": "negation_refusal",
+      "difficulty": "hard",
+      "description": "Follow-up asks for info NOT in corpus; system should refuse.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "What vendors does TechViet use for procurement?",
+          "expected_answer": "The Procurement Vendor Policy lists approved vendor categories and selection criteria.",
+          "source_documents": ["20_Procurement_Vendor_Policy.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "What was the total procurement spend in 2024?",
+          "expected_answer": "",
+          "source_documents": [],
+          "expected_pages": [],
+          "has_answer": false,
+          "tests": ["refusal", "information not in corpus"]
+        },
+        {
+          "turn_id": 3,
+          "user": "OK, what about the vendor approval process then?",
+          "expected_answer": "The vendor approval process requires submission through procurement, legal/security review, and sign-off per the vendor policy thresholds.",
+          "source_documents": ["20_Procurement_Vendor_Policy.pdf"],
+          "expected_pages": [2, 3],
+          "has_answer": true,
+          "tests": ["recovery", "back on-topic after refusal"]
+        }
+      ]
+    },
+    {
+      "conversation_id": "mt_016",
+      "category": "self_correction",
+      "difficulty": "hard",
+      "description": "User corrects themselves mid-conversation; system must use the corrected info, not the original.",
+      "turns": [
+        {
+          "turn_id": 1,
+          "user": "What were the Q4 2025 engineering OKRs?",
+          "expected_answer": "The Quarterly Business Review covers Q4 2025 performance highlights including reliability, delivery, and product outcomes.",
+          "source_documents": ["27_Quarterly_Business_Review_Q4_2025.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["factual"]
+        },
+        {
+          "turn_id": 2,
+          "user": "Sorry, I meant Q1 2026, not Q4 2025.",
+          "expected_answer": "Q1 2026 engineering OKRs cover reliability, velocity, and product delivery targets as detailed in the Q1 2026 OKR document.",
+          "source_documents": ["15_OKR_Performance_Q1_2026.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["self_correction", "must switch from Q4 2025 to Q1 2026"]
+        },
+        {
+          "turn_id": 3,
+          "user": "Which active projects contribute to those?",
+          "expected_answer": "Active Q1 2026 projects contributing to Q1 OKRs include Phoenix Platform, ChatAssist v2.3, Cloud Migration, and other initiatives from the Q1 2026 Project Status report — not Q4 2025 items.",
+          "source_documents": ["05_Q1_2026_Project_Status.pdf", "15_OKR_Performance_Q1_2026.pdf"],
+          "expected_pages": [1, 2],
+          "has_answer": true,
+          "tests": ["self_correction", "coreference must bind to corrected Q1 2026"]
+        }
+      ]
+    }
+  ]
+}

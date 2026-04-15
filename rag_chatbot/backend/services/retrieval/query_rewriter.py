@@ -17,23 +17,51 @@ logger = logging.getLogger(__name__)
 # Prompt for the rewrite step
 # ---------------------------------------------------------------------------
 _REWRITE_SYSTEM = (
-    "You are a query rewriter for an enterprise document Q&A system. "
-    "Your ONLY job is to rewrite the user's follow-up question into one "
-    "clear, self-contained English question that can be understood with NO "
-    "prior conversation context. "
-    "Rules:\n"
-    "1. Resolve all pronouns ('it', 'they', 'those', 'that', etc.) using "
-    "   the conversation history.\n"
-    "2. Preserve every specific detail, number, or name from the follow-up.\n"
-    "3. Output ONLY the rewritten question — no explanation, no preamble.\n"
-    "4. If the question is already self-contained, output it unchanged."
+    "You rewrite a user's follow-up question into ONE clear, self-contained "
+    "search query for a document retrieval system. The rewrite will be used "
+    "only for retrieval — not shown to the user.\n\n"
+    "RULES (in priority order):\n"
+    "1. TOPIC SHIFT: If the follow-up is clearly on a NEW topic (different "
+    "   entity, domain, or intent than recent turns — e.g. 'actually, forget "
+    "   that', 'what about X instead', or simply an unrelated question), "
+    "   output the follow-up UNCHANGED. Do NOT merge in prior-turn entities.\n"
+    "2. COREFERENCE: If the follow-up references the prior turn via pronouns "
+    "   or ellipsis ('it', 'they', 'that', 'those', 'the second one', "
+    "   'nó', 'cái đó', bare 'and for X?', 'why?'), resolve every reference "
+    "   to the specific entity/topic from history.\n"
+    "3. PRESERVATION: Keep every specific name, number, date, and qualifier "
+    "   from the follow-up verbatim. Never drop detail.\n"
+    "4. NO EXPANSION: Do NOT add facts the user did not ask for. Do NOT invent "
+    "   entity names not present in the history or follow-up.\n"
+    "5. LANGUAGE: Keep the rewrite in the SAME language as the follow-up.\n"
+    "6. FORMAT: Output ONLY the rewritten question as a single line — no "
+    "   quotes, no prefix ('Rewritten:', 'Sure,'), no explanation.\n"
+    "7. If the follow-up is already self-contained, output it unchanged."
 )
 
 _REWRITE_USER_TMPL = (
     "Conversation history (most recent last):\n"
     "{history}\n\n"
     "Follow-up question: {question}\n\n"
-    "Rewritten standalone question:"
+    "Standalone question:"
+)
+
+# Heuristic: skip LLM rewrite when the question is clearly self-contained.
+# Triggers rewrite only when follow-up has pronouns/ellipsis or is short.
+_PRONOUN_MARKERS = (
+    # English
+    " it ", " it?", " it.", " its ", " they ", " them ", " their ",
+    " that ", " that?", " that.", " this ", " those ", " these ",
+    " he ", " she ", " him ", " her ", " his ",
+    " one ", " ones ", " the same ", " such ",
+    # Vietnamese
+    " nó ", " nó?", " nó.", " họ ", " chúng ",
+    " cái đó", " cái này", " điều đó", " việc đó", " vậy",
+)
+_ELLIPSIS_STARTS = (
+    "and ", "but ", "so ", "then ", "also ", "what about", "how about",
+    "why", "why?", "when?", "where?", "who?", "how?",
+    "và ", "còn ", "thế ", "vậy ", "tại sao", "khi nào", "ai ",
 )
 
 
@@ -64,20 +92,72 @@ class QueryRewriterService:
         if not prior_turns:
             return question
 
+        # Skip LLM call when the question looks fully self-contained.
+        if self._is_self_contained(question):
+            logger.debug("QueryRewriter: skipped (self-contained) [%s]", question[:80])
+            return question
+
         try:
             rewritten = await self._call_llm(question, prior_turns)
-            rewritten = rewritten.strip().strip('"').strip("'")
-            if rewritten:
+            rewritten = self._sanitize(rewritten)
+            if rewritten and self._looks_valid(rewritten, question):
                 logger.info(
                     "QueryRewriter: [%s] -> [%s]",
                     question[:80],
                     rewritten[:80],
                 )
                 return rewritten
+            logger.debug("QueryRewriter: output rejected, keeping original")
         except Exception as exc:
             logger.warning("QueryRewriter failed (%s), using original query", exc)
 
         return question
+
+    # ------------------------------------------------------------------
+    # Heuristics
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _is_self_contained(question: str) -> bool:
+        """True when the question needs no history to be understood."""
+        q = question.strip()
+        if len(q) < 15:
+            return False
+        lower = f" {q.lower()} "
+        if any(m in lower for m in _PRONOUN_MARKERS):
+            return False
+        if any(lower.lstrip().startswith(s) for s in _ELLIPSIS_STARTS):
+            return False
+        # Has its own subject noun-ish signal: >= 6 tokens and a capitalised
+        # token or a content verb. Cheap heuristic — treat long questions as
+        # self-contained.
+        return len(q.split()) >= 8
+
+    @staticmethod
+    def _sanitize(text: str) -> str:
+        """Strip common LLM wrappers from the rewrite output."""
+        t = (text or "").strip()
+        # Take first non-empty line only.
+        for line in t.splitlines():
+            line = line.strip().strip('"').strip("'").strip("`")
+            for prefix in (
+                "rewritten:", "standalone question:", "standalone:",
+                "query:", "question:", "sure,", "sure:", "here is",
+            ):
+                if line.lower().startswith(prefix):
+                    line = line[len(prefix):].strip(" :-—")
+            if line:
+                return line
+        return ""
+
+    @staticmethod
+    def _looks_valid(rewritten: str, original: str) -> bool:
+        """Reject clearly-bad rewrites so we fall back to original."""
+        if not rewritten or len(rewritten) > 400:
+            return False
+        # Reject rewrites that are a suspicious multi-line explanation.
+        if rewritten.count("\n") > 0:
+            return False
+        return True
 
     def _format_history(self, turns: List[Dict]) -> str:
         """Format the last N turns for the prompt."""

@@ -183,24 +183,15 @@ class LLMService:
         if conversation_history:
             for turn in conversation_history[-6:]:
                 content = turn["content"]
-                if turn["role"] == "assistant" and len(content) > 300:
-                    content = content[:300] + "..."
+                if turn["role"] == "assistant" and len(content) > 1200:
+                    content = content[:1200] + "..."
                 messages.append({"role": turn["role"], "content": content})
 
         user_message = f"""CONTEXT:
 {context}
 
 ---
-QUESTION: {question}
-
-INSTRUCTIONS:
-1. Identify ALL sub-questions and conditions in the QUESTION. List them.
-2. For conditional questions ("if X, can Y?"), evaluate each condition separately: MET or NOT MET with citation.
-3. Answer each sub-question with [Source N: filename, pX] citations. Never copy raw table/row labels as citations.
-4. If something is not in context, name which sources you checked.
-5. Do NOT repeat the same fact in multiple sections.
-
-ANSWER:"""
+QUESTION: {question}"""
         messages.append({"role": "user", "content": user_message})
         return messages
 

@@ -3,7 +3,7 @@
   "description": "Comprehensive evaluation dataset for TechViet Solutions document corpus (30 PDFs). Covers 7 difficulty levels and 10 categories across HR, engineering, security, finance, operations, and product domains.",
   "version": "2.0",
   "document_corpus": "../../../data/techviet_docs/ (30 PDF documents, located at project root)",
-  "total_test_cases": 50,
+  "total_test_cases": 56,
   "category_distribution": {
     "factual_easy": 8,
     "table_lookup": 6,
@@ -14,7 +14,9 @@
     "numerical_extraction": 5,
     "negation_refusal": 5,
     "ambiguous_paraphrase": 3,
-    "long_context": 2
+    "long_context": 2,
+    "hard_out_of_scope": 3,
+    "multi_intent": 3
   },
   "test_cases": [
     {
@@ -505,6 +507,66 @@
       "expected_answer": "The escalation path is: 0 min - Alert fires, primary on-call receives PagerDuty notification (push + SMS + phone). 5 min - If no acknowledgment, auto-escalate to secondary on-call (PagerDuty push + phone call). 15 min - If P1, Incident Commander declared (Engineering Manager), war room opened via Slack #incident-{id} channel. 30 min - If P1 unresolved, escalate to VP Engineering (Le Van Hung). 1 hour - If P1 unresolved, CTO and affected client PM notified via phone + email. 2 hours - If P1 unresolved, CEO briefed, external communications prepared.",
       "source_documents": ["14_Operations_Runbook.pdf"],
       "expected_pages": [3],
+      "has_answer": true
+    },
+    {
+      "id": "hard_oos_001",
+      "category": "hard_out_of_scope",
+      "difficulty": "hard",
+      "question": "What was TechViet's total procurement spend in 2024?",
+      "expected_answer": "",
+      "source_documents": [],
+      "expected_pages": [],
+      "has_answer": false
+    },
+    {
+      "id": "hard_oos_002",
+      "category": "hard_out_of_scope",
+      "difficulty": "hard",
+      "question": "What is the average salary of a Senior Engineer at TechViet?",
+      "expected_answer": "",
+      "source_documents": [],
+      "expected_pages": [],
+      "has_answer": false
+    },
+    {
+      "id": "hard_oos_003",
+      "category": "hard_out_of_scope",
+      "difficulty": "hard",
+      "question": "Who is the Chief Technology Officer (CTO) of TechViet?",
+      "expected_answer": "",
+      "source_documents": [],
+      "expected_pages": [],
+      "has_answer": false
+    },
+    {
+      "id": "multi_intent_001",
+      "category": "multi_intent",
+      "difficulty": "medium",
+      "question": "List all SLA tiers offered to clients and their uptime guarantees.",
+      "expected_answer": "The Client SLA Playbook defines multiple tiers (e.g., Standard, Premium, Enterprise) each with a distinct uptime commitment — Standard around 99.5%, Premium higher, and Enterprise the highest (99.95% or 99.99%). All tiers and exact percentages must be listed together.",
+      "source_documents": ["16_Client_SLA_Playbook.pdf"],
+      "expected_pages": [1, 2],
+      "has_answer": true
+    },
+    {
+      "id": "multi_intent_002",
+      "category": "multi_intent",
+      "difficulty": "medium",
+      "question": "How do I reset my TechViet password, and who should I contact if the reset link doesn't arrive?",
+      "expected_answer": "Password reset: navigate to https://sso.techviet.vn/reset and enter your company email (firstname.lastname@techviet.vn); the reset link arrives within 5 minutes and expires after 1 hour. If it doesn't arrive, contact IT Support as documented in the IT Support FAQ.",
+      "source_documents": ["10_IT_Support_FAQ.pdf"],
+      "expected_pages": [1],
+      "has_answer": true
+    },
+    {
+      "id": "multi_intent_003",
+      "category": "multi_intent",
+      "difficulty": "medium",
+      "question": "What are the standard working hours at TechViet, and what's the policy for overtime?",
+      "expected_answer": "Standard hours are Monday-Friday 8:30 AM to 5:30 PM ICT with a 1-hour lunch break (40-hour week). Overtime policy is defined in the Employee Handbook with approval and compensation rules - both parts must be answered.",
+      "source_documents": ["01_Employee_Handbook.pdf"],
+      "expected_pages": [2, 3],
       "has_answer": true
     },
     {
