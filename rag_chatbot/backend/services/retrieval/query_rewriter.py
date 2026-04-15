@@ -103,8 +103,8 @@ class QueryRewriterService:
             if rewritten and self._looks_valid(rewritten, question):
                 logger.info(
                     "QueryRewriter: [%s] -> [%s]",
-                    question[:80],
-                    rewritten[:80],
+                    question,
+                    rewritten,
                 )
                 return rewritten
             logger.debug("QueryRewriter: output rejected, keeping original")

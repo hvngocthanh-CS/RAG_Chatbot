@@ -60,7 +60,7 @@ class RetrievalService:
             )
             if retrieval_query != query:
                 logger.info("Query rewritten: [%s] -> [%s]",
-                            query[:60], retrieval_query[:60])
+                            query, retrieval_query)
 
         # Step 2: Vector search (semantic similarity)
         query_embedding = await self.embedding_service.embed_query(retrieval_query)
