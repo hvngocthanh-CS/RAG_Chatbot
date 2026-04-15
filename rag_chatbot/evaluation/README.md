@@ -18,6 +18,33 @@ evaluation/
 └── README.md
 ```
 
+## Quy tắc đánh giá — sample nào chạy metric nào
+
+Dataset có 2 loại test case:
+- **Answerable** (`has_answer: true`) — câu có đáp án trong corpus. Có `expected_answer` và `source_documents`.
+- **Unanswerable** (`has_answer: false`) — câu ngoài corpus. `expected_answer=""`, `source_documents=[]`. Mục đích: test RAG có biết từ chối không.
+
+Mỗi loại được chấm bằng **metric phù hợp** — **không sample nào bị bỏ qua hoàn toàn**:
+
+| Metric | Chạy trên sample có | Lý do |
+|---|---|---|
+| Hit@k, Recall@k, MRR | `has_answer=true` | Cần `expected_docs` để so. Câu refusal không có docs đúng → metric vô nghĩa. |
+| `retrieval_refusal_accuracy` | `has_answer=false` | Check retriever có trả empty cho câu ngoài scope không. |
+| `generation_refusal_accuracy` | `has_answer=false` | Check LLM có nói "Not found in ..." đúng không. |
+| RAGAS — Faithfulness, Relevancy, Context Precision/Recall | `has_answer=true` **AND** có ≥1 chunk retrieved | RAGAS cần có `reference` + `contexts` + `answer` có nội dung. Refusal không có claims để verify → chạy lên sẽ bẩn kết quả. |
+
+**Ví dụ với dataset 50 câu (45 answerable + 5 unanswerable):**
+- Retrieval IR metrics tính trên 45 câu.
+- Refusal metrics tính trên 5 câu.
+- RAGAS tính trên 45 câu (miễn là có chunks retrieved).
+- Tổng: **mọi sample đều được chấm** — chỉ bằng metric đúng cho loại của nó.
+
+**Vì sao không chạy RAGAS trên câu refusal:**
+- Faithfulness: answer dạng "Not found in [...]" không có claims → judge không verify được → NaN.
+- Context Recall: `reference=""` → chia cho 0 → NaN.
+- Answer Relevancy: answer là refusal generic → điểm thấp giả tạo, không phản ánh đúng chất lượng.
+→ Chạy RAGAS lên refusal sẽ **kéo điểm trung bình xuống sai lệch**.
+
 ## Metrics
 
 ### Retrieval (rẻ, deterministic)
@@ -108,6 +135,49 @@ Report lưu ở `evaluation/reports/multiturn_report_<timestamp>.json` với 3 b
 | Refusal Accuracy | ≥ 0.80 | ≥ 0.90 |
 
 Gap lớn giữa `first` và `follow_up` là tín hiệu query rewriter / coreference còn yếu — ưu tiên fix trước khi release.
+
+## Debug RAGAS failures
+
+RAGAS chấm bằng LLM judge, nên có thể bị **timeout** hoặc **OutputParserException** với một số sample → metric trả về NaN. Report JSON lưu 2 field để bạn biết sample nào được chấm và sample nào bị bỏ qua:
+
+```json
+"ragas_coverage": {
+  "faithfulness":      {"scored": 48, "failed": 2, "total": 50},
+  "answer_relevancy":  {"scored": 50, "failed": 0, "total": 50},
+  "context_precision": {"scored": 49, "failed": 1, "total": 50},
+  "context_recall":    {"scored": 47, "failed": 3, "total": 50}
+},
+"ragas_per_sample": [
+  {
+    "id": "multi_hop_003",
+    "status": "partial",                          // "ok" | "partial" | "failed"
+    "failed_metrics": ["faithfulness", "context_recall"],
+    "scores": {"faithfulness": null, "answer_relevancy": 0.83, ...}
+  }
+]
+```
+
+- `coverage` — mỗi metric chấm được bao nhiêu sample. Mean trong `ragas_metrics` chỉ tính trên phần scored.
+- `per_sample` — status từng sample: `ok` (mọi metric scored), `partial` (có metric NaN), `failed` (toàn bộ NaN).
+
+Console cũng in coverage + danh sách ID fail ngay sau khi RAGAS xong.
+
+### Ngưỡng cảnh báo
+
+| Fail rate | Ý nghĩa | Hành động |
+|---|---|---|
+| 0% | Kết quả đáng tin hoàn toàn | Không cần làm gì |
+| 1-10% | Acceptable — mean tính trên scored samples vẫn đại diện | Theo dõi, không cần đổi model |
+| >10% | Judge model yếu hoặc data có pattern gây parse error | Đổi sang judge mạnh hơn (VD `llama3.1:8b` thay `llama3.2:3b`), hoặc rút ngắn answer dài |
+
+### Nguyên nhân fail thường gặp
+
+| Pattern | Nguyên nhân | Cách xử lý |
+|---|---|---|
+| `TimeoutError` | Answer quá dài (>1500 chars) → judge không parse kịp trong 300s | Rút ngắn answer bằng cách giảm `LLM_MAX_TOKENS`, hoặc giảm format cứng trong prompt |
+| `OutputParserException: Invalid json` | Judge LLM (thường model nhỏ) không trả JSON hợp lệ | Đổi sang judge model mạnh hơn |
+| Fail nhiều ở `context_recall` | Reference hoặc contexts quá noisy / dài | Check dataset expected_answer có quá dài không |
+| Fail nhiều ở `faithfulness` | Answer có nhiều câu không cite → judge trích claim khó | Prompt bắt cite kỹ hơn, hoặc expected_answer viết gọn hơn |
 
 ## Unit test (không cần infra)
 

@@ -149,13 +149,23 @@ class RAGASEvaluator:
             )
         return self._embeddings
 
-    async def evaluate(self, samples: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Evaluate samples with RAGAS. Each sample needs: user_input, response, retrieved_contexts, reference."""
+    async def evaluate(
+        self,
+        samples: List[Dict[str, Any]],
+        sample_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Evaluate samples with RAGAS. Each sample needs: user_input, response, retrieved_contexts, reference.
+
+        Args:
+            samples: list of dicts for RAGAS
+            sample_ids: optional list of stable IDs aligned with `samples`
+                        (used for per-sample success/failure reporting)
+        """
         llm = self._get_llm()
         embeddings = self._get_embeddings()
-        
+
         metrics = [
-            Faithfulness(llm=llm), 
+            Faithfulness(llm=llm),
             ResponseRelevancy(llm=llm, embeddings=embeddings),
             ContextPrecision(llm=llm),
             ContextRecall(llm=llm),
@@ -170,10 +180,59 @@ class RAGASEvaluator:
             ) for s in samples
         ])
 
-        result = ragas_evaluate(dataset=dataset, metrics=metrics, run_config=RunConfig(timeout=300, max_retries=3))
-        
+        result = ragas_evaluate(
+            dataset=dataset,
+            metrics=metrics,
+            run_config=RunConfig(timeout=300, max_retries=3),
+        )
+
         df = result.to_pandas()
         skip = {"user_input", "response", "retrieved_contexts", "reference"}
-        summary = {col: round(float(df[col].dropna().mean()), 4) 
-                   for col in df.columns if col not in skip and df[col].dropna().size > 0}
-        return {"summary": summary, "num_samples": len(samples)}
+        metric_cols = [c for c in df.columns if c not in skip]
+
+        # Aggregate: mean over non-null, and per-metric success/failure counts
+        summary: Dict[str, float] = {}
+        coverage: Dict[str, Dict[str, int]] = {}
+        for col in metric_cols:
+            values = df[col].dropna()
+            if len(values) > 0:
+                summary[col] = round(float(values.mean()), 4)
+            coverage[col] = {
+                "scored": int(df[col].notna().sum()),
+                "failed": int(df[col].isna().sum()),
+                "total": int(len(df)),
+            }
+
+        # Per-sample results — one row per input sample with its metric scores
+        # and a status ("ok" / "partial" / "failed").
+        ids = sample_ids or [f"sample_{i}" for i in range(len(samples))]
+        per_sample: List[Dict[str, Any]] = []
+        for i in range(len(df)):
+            scores: Dict[str, Any] = {}
+            failed_metrics: List[str] = []
+            for col in metric_cols:
+                v = df[col].iloc[i]
+                if v is None or (isinstance(v, float) and v != v):  # NaN check
+                    scores[col] = None
+                    failed_metrics.append(col)
+                else:
+                    scores[col] = round(float(v), 4)
+            if not failed_metrics:
+                status = "ok"
+            elif len(failed_metrics) == len(metric_cols):
+                status = "failed"
+            else:
+                status = "partial"
+            per_sample.append({
+                "id": ids[i] if i < len(ids) else f"sample_{i}",
+                "status": status,
+                "failed_metrics": failed_metrics,
+                "scores": scores,
+            })
+
+        return {
+            "summary": summary,
+            "num_samples": len(samples),
+            "coverage": coverage,
+            "per_sample": per_sample,
+        }

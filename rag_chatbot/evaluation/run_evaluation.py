@@ -164,8 +164,11 @@ async def main():
         print(f"\n  Gen refusal accuracy: {gen_refusal:.4f} ({correct}/{len(unanswerable)})")
 
     ragas_summary = None
+    ragas_coverage = None
+    ragas_per_sample = None
     if not args.no_ragas:
         print("\n4. Running RAGAS (slow - LLM judge)...")
+        ragas_candidates = [s for s in ok if s["has_answer"] and s["retrieved_chunks"]]
         ragas_inputs = [
             {
                 "user_input": s["question"],
@@ -173,13 +176,25 @@ async def main():
                 "retrieved_contexts": [c["content"] for c in s["retrieved_chunks"]],
                 "reference": s["expected_answer"],
             }
-            for s in ok if s["has_answer"] and s["retrieved_chunks"]
+            for s in ragas_candidates
         ]
+        sample_ids = [s["test_id"] for s in ragas_candidates]
         if ragas_inputs:
             evaluator = RAGASEvaluator()
-            result = await evaluator.evaluate(ragas_inputs)
+            result = await evaluator.evaluate(ragas_inputs, sample_ids=sample_ids)
             ragas_summary = result["summary"]
+            ragas_coverage = result["coverage"]
+            ragas_per_sample = result["per_sample"]
             print_ragas(ragas_summary)
+            print(f"\n  RAGAS coverage (scored / total):")
+            for metric, cov in ragas_coverage.items():
+                print(f"    {metric:24s} {cov['scored']}/{cov['total']} "
+                      f"(failed: {cov['failed']})")
+            failed_ids = [p["id"] for p in ragas_per_sample if p["status"] != "ok"]
+            if failed_ids:
+                print(f"  Samples with any failed metric: {len(failed_ids)}")
+                print(f"    IDs: {', '.join(failed_ids[:10])}"
+                      + (" ..." if len(failed_ids) > 10 else ""))
 
     os.makedirs(REPORT_DIR, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -198,6 +213,8 @@ async def main():
             "retrieval_metrics": retrieval_metrics,
             "generation_refusal_accuracy": gen_refusal,
             "ragas_metrics": ragas_summary,
+            "ragas_coverage": ragas_coverage,
+            "ragas_per_sample": ragas_per_sample,
         }, f, indent=2, ensure_ascii=False)
 
     print(f"\n{'='*60}")
