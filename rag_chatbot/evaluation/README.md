@@ -65,7 +65,7 @@ Mỗi loại được chấm bằng **metric phù hợp** — **không sample n�
 ```bash
 docker run --name qdrant -p 6333:6333 qdrant/qdrant     # Qdrant
 ollama serve                                             # Ollama
-ollama pull llama3.2                                     # pull model
+ollama pull llama3.1:8b                                  # pull model
 python scripts/ingest_documents.py ../data/techviet_docs # ingest corpus
 pip install ragas datasets langchain-community           # deps cho RAGAS
 ```
@@ -161,6 +161,59 @@ RAGAS chấm bằng LLM judge, nên có thể bị **timeout** hoặc **OutputPa
 - `per_sample` — status từng sample: `ok` (mọi metric scored), `partial` (có metric NaN), `failed` (toàn bộ NaN).
 
 Console cũng in coverage + danh sách ID fail ngay sau khi RAGAS xong.
+
+### ⚠️ Chọn judge model đủ mạnh (quan trọng nhất)
+
+**Nguyên nhân phổ biến nhất** khi thấy nhiều `OutputParserException: Invalid json` hoặc timeout: **judge model quá yếu**.
+
+RAGAS yêu cầu LLM judge trả về **JSON strict schema**. Model 3B (VD `llama3.2` mặc định) thường **không follow được** → fail hàng loạt sample → mean bị bẩn.
+
+**Fix:** dùng model ≥7B cho cả chat lẫn judge:
+
+```bash
+# .env
+OLLAMA_MODEL=llama3.1:8b           # chat + judge dùng chung
+RAGAS_JUDGE_MODEL=                 # rỗng = reuse OLLAMA_MODEL
+RAGAS_TIMEOUT_SECONDS=600          # tăng lên 10 phút
+```
+
+Hoặc nếu muốn chat nhanh hơn bằng model nhỏ nhưng judge chính xác:
+```bash
+OLLAMA_MODEL=llama3.2              # chat nhanh (3B)
+RAGAS_JUDGE_MODEL=llama3.1:8b      # judge chính xác (8B)
+```
+
+Pull model trước khi chạy:
+```bash
+ollama pull llama3.1:8b
+```
+
+**Gợi ý judge model theo phần cứng** (Ollama mặc định Q4_K_M — đã quantize sẵn):
+
+| Phần cứng | Judge model đề xuất | VRAM cần | Pull command |
+|---|---|---|---|
+| CPU only | `llama3.1:8b` (chạy chậm) | — | `ollama pull llama3.1:8b` |
+| GPU 6GB | **`qwen2.5:7b`** ← sweet spot | ~4.5 GB | `ollama pull qwen2.5:7b` |
+| GPU 6GB (sát rìa) | `qwen2.5:3b-instruct-q8_0` | ~3 GB | `ollama pull qwen2.5:3b-instruct-q8_0` |
+| GPU ≥ 8GB | `qwen2.5:7b` hoặc `llama3.1:8b` | ~5 GB | `ollama pull qwen2.5:7b` |
+| GPU ≥ 16GB | `qwen2.5:14b` | ~9 GB | `ollama pull qwen2.5:14b` |
+| Có budget API | Claude/GPT qua langchain wrapper (sửa `metrics.py`) | — | — |
+
+**Tại sao `qwen2.5:7b` tốt nhất cho judge:** chất lượng structured JSON output hàng đầu nhóm 7B — đúng thứ RAGAS cần.
+
+**Nếu OOM với 6GB:** unload model không dùng trước khi eval để chừa VRAM:
+```bash
+ollama ps                          # xem model đang load
+ollama stop <model_not_needed>
+python -m evaluation.run_evaluation
+```
+
+Hoặc thử quantization "ép" hơn:
+```bash
+ollama pull qwen2.5:7b-instruct-q3_K_M   # ~3.3GB, chất lượng giảm ~5%
+```
+
+Sau khi đổi, rerun eval. Nếu `ragas_coverage` vẫn có `failed > 10%` → đổi model lớn hơn.
 
 ### Ngưỡng cảnh báo
 

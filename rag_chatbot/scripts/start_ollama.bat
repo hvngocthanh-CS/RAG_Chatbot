@@ -40,12 +40,12 @@ if errorlevel 1 (
 
 REM Check if model exists
 echo.
-echo [3/4] Checking model 'phi3'...
-ollama list | findstr phi3 >nul 2>&1
+echo [3/4] Checking model 'llama3.1:8b'...
+ollama list | findstr llama3.1 >nul 2>&1
 if errorlevel 1 (
-    echo ⚠️  Model 'phi3' not found. Downloading...
-    echo    This will take ~2GB download, please wait...
-    ollama pull phi3
+    echo ⚠️  Model 'llama3.1:8b' not found. Downloading...
+    echo    This will take ~5GB download, please wait...
+    ollama pull llama3.1:8b
     if errorlevel 1 (
         echo ❌ Failed to download model
         pause
@@ -53,7 +53,7 @@ if errorlevel 1 (
     )
     echo ✅ Model downloaded successfully
 ) else (
-    echo ✅ Model 'phi3' is ready
+    echo ✅ Model 'llama3.1:8b' is ready
 )
 
 REM Start RAG API
@@ -63,10 +63,9 @@ echo    LLM Provider: Ollama
 echo    Ollama URL: http://localhost:11434/v1
 echo    API Port: 8000
 echo.
-echo ⚠️  Make sure .env has LLM_PROVIDER=ollama
 echo.
 
 cd /d "%~dp0\.."
-python scripts\run_server.py
+uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
 
 pause

@@ -181,6 +181,7 @@ async def main():
         sample_ids = [s["test_id"] for s in ragas_candidates]
         if ragas_inputs:
             evaluator = RAGASEvaluator()
+            print(f"   Judge model: {evaluator._model_name}")
             result = await evaluator.evaluate(ragas_inputs, sample_ids=sample_ids)
             ragas_summary = result["summary"]
             ragas_coverage = result["coverage"]

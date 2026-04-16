@@ -25,7 +25,12 @@ class Settings(BaseSettings):
 
     # --- LLM (Ollama) ---
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
-    OLLAMA_MODEL: str = "llama3.2"
+    OLLAMA_MODEL: str = "llama3.1:8b"
+    # Judge model for RAGAS — can reuse OLLAMA_MODEL (same 8B is strong
+    # enough for structured JSON). Leave empty to reuse OLLAMA_MODEL.
+    RAGAS_JUDGE_MODEL: str = ""
+    RAGAS_TIMEOUT_SECONDS: int = 600
+    RAGAS_MAX_RETRIES: int = 3
     LLM_TEMPERATURE: float = 0.0
     LLM_MAX_TOKENS: int = 1024
     LLM_TOP_P: float = 0.95

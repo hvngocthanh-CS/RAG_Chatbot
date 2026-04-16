@@ -20,20 +20,20 @@
 ### 1.1 Tạo conda environment
 
 ```powershell
-conda create -n rag_chatbot python=3.10 -y
+conda create -n rag_chatbot python=3.11 -y
 conda activate rag_chatbot
 ```
 
 ### 1.2 Cài đặt dependencies
 
 ```powershell
-cd C:\thanhhuynh\Chatbot\rag_chatbot
+cd <path to rag_chatbot>
 
 # Cài thư viện chính
 pip install -r requirements.txt
 
 # Cài thư viện cho evaluation (optional)
-pip install ragas datasets langchain-community pyyaml
+pip install ragas datasets langchain-ollama langchain-huggingface
 ```
 
 ### 1.3 Cài Ollama
@@ -43,8 +43,8 @@ pip install ragas datasets langchain-community pyyaml
 Sau khi cài xong:
 
 ```powershell
-# Pull LLM model (mặc định: llama3.2)
-ollama pull llama3.2
+# Pull LLM model (mặc định: llama3.1:8b)
+ollama pull llama3.1:8b
 
 # Kiểm tra
 ollama list
@@ -96,13 +96,21 @@ docker run --name qdrant -p 6333:6333 -p 6334:6334 qdrant/qdrant
 ```
 
 **Terminal 2 — Ollama (LLM):**
+
+Trên Windows, Ollama thường tự chạy như service sau khi cài → bỏ qua bước này. Kiểm tra bằng:
+```powershell
+curl http://localhost:11434
+# Nếu thấy "Ollama is running" → OK
+```
+
+Nếu chưa chạy thì mới cần:
 ```powershell
 ollama serve
 ```
 
 **Terminal 3 — Backend (FastAPI):**
 ```powershell
-cd C:\thanhhuynh\Chatbot\rag_chatbot
+cd <path to rag_chatbot>
 conda activate rag_chatbot
 
 uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
@@ -114,12 +122,13 @@ uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
 
 **Terminal 1 — Ollama (vẫn chạy trên host để dùng GPU):**
 ```powershell
-ollama serve
+# Windows: Ollama tự chạy như service. Verify:
+curl http://localhost:11434
 ```
 
 **Terminal 2 — Docker Compose (Qdrant + Redis + Backend):**
 ```powershell
-cd C:\thanhhuynh\Chatbot\rag_chatbot
+cd <path to rag_chatbot>
 docker-compose -f docker/docker-compose.yml up -d
 ```
 
@@ -214,57 +223,72 @@ curl -X POST "http://localhost:8000/api/v1/chat/chat" `
 
 ## Bước 6: Evaluation (đánh giá chất lượng RAG)
 
-### 6.1 Chuẩn bị test dataset
+### 6.1 Datasets có sẵn
 
-File `evaluation/datasets/eval_dataset.json`:
+| Dataset | File | Số lượng |
+|---|---|---|
+| Single-turn | `evaluation/datasets/techviet_qa_v2.json` | 56 test cases, 12 category |
+| Multi-turn  | `evaluation/datasets/techviet_multiturn_v1.json` | 16 hội thoại / 61 turns, 9 category |
 
-```json
-[
-  {
-    "question": "How many days of annual leave?",
-    "ground_truth_answer": "12 days per year",
-    "relevant_doc_ids": ["policy.pdf"]
-  }
-]
-```
+Bao phủ: factual, multi-hop, comparison, temporal, negation/refusal, hard_out_of_scope, multi_intent, coreference, topic_shift, self_correction...
 
-### 6.2 Smoke test (nhanh)
+### 6.2 Single-turn
 
 ```powershell
-# 5 cases, không dùng RAGAS (LLM-judged metrics)
+# Smoke test — 5 cases, bỏ RAGAS
 python -m evaluation.run_evaluation --limit 5 --no-ragas
-```
 
-**Thời gian:** ~1-2 phút  
-**Output:** `evaluation/reports/report_YYYYMMDD_HHMMSS.json`
-
-### 6.3 Full evaluation
-
-```powershell
-# 50 cases, bao gồm RAGAS (Faithfulness, ContextPrecision...)
+# Full — 56 cases, có RAGAS (Faithfulness, ContextPrecision, ...)
 python -m evaluation.run_evaluation
 ```
 
-**Thời gian:** ~10-20 phút (tùy số lượng test case + LLM speed)
+**Thời gian:** smoke ~1 phút, full ~20-40 phút tuỳ model (8B chậm hơn 3B).
+
+### 6.3 Multi-turn
+
+```powershell
+# Smoke — 2 hội thoại, bỏ RAGAS
+python -m evaluation.run_multiturn_evaluation --limit 2 --no-ragas
+
+# Full — 16 hội thoại
+python -m evaluation.run_multiturn_evaluation
+```
+
+Script truyền `conversation_history` giữa các turn → test thực tế `QueryRewriter` và xử lý coreference/topic-shift.
 
 ### 6.4 Kết quả
+
+Report lưu ở `evaluation/reports/report_<timestamp>.json` (single-turn) hoặc `multiturn_report_<timestamp>.json`. Shape chính:
 
 ```json
 {
   "retrieval_metrics": {
-    "hit@5": 0.92,
-    "recall@5": 0.78,
-    "mrr": 0.85
+    "hit_at_k": 1.0,
+    "recall_at_k": 0.97,
+    "mrr": 0.95,
+    "refusal_accuracy": 0.0,
+    "num_answerable": 48,
+    "num_unanswerable": 8
   },
+  "generation_refusal_accuracy": 1.0,
   "ragas_metrics": {
-    "faithfulness": 0.89,
-    "context_precision": 0.82,
-    "response_relevancy": 0.91
-  }
+    "faithfulness": 0.78,
+    "answer_relevancy": 0.85,
+    "context_precision": 1.0,
+    "context_recall": 0.67
+  },
+  "ragas_coverage": {
+    "faithfulness": {"scored": 46, "failed": 2, "total": 48}
+  },
+  "ragas_per_sample": [
+    {"id": "factual_001", "status": "ok", "scores": {...}}
+  ]
 }
 ```
 
-**Chi tiết:** xem [evaluation/README.md](evaluation/README.md)
+Multi-turn có thêm `retrieval_metrics_by_turn_position` và `retrieval_metrics_by_category`.
+
+**Chi tiết (quy tắc chấm, judge model, debug failures):** xem [evaluation/README.md](evaluation/README.md)
 
 ---
 
@@ -277,13 +301,20 @@ rag_chatbot/
 │   ├── services/     # Core services (ingestion, retrieval, llm...)
 │   ├── core/         # Resilience, logging, exceptions
 │   └── config/       # Settings (Pydantic)
-├── evaluation/       # RAGAS + IR metrics
+├── evaluation/
+│   ├── datasets/
+│   │   ├── techviet_qa_v2.json         # 56 single-turn cases
+│   │   └── techviet_multiturn_v1.json  # 16 conversations / 61 turns
+│   ├── metrics.py                      # IR metrics + RAGAS wrapper
+│   ├── run_evaluation.py               # Single-turn runner
+│   ├── run_multiturn_evaluation.py     # Multi-turn runner
+│   └── reports/                        # Report JSON
 ├── data/
-│   ├── techviet_docs/   # Input documents (PDF/DOCX/TXT)
+│   ├── techviet_docs/   # Input PDFs (nằm ở project root: ../data/)
 │   ├── processed/       # Metadata sidecar JSON
 │   └── uploads/         # API uploads
 ├── models/           # Cached HuggingFace models
-├── scripts/          # CLI tools (ingest_documents.py)
+├── scripts/          # CLI tools (ingest_documents.py, start_ollama.bat)
 ├── docker/           # Dockerfile + docker-compose.yml
 ├── setup_embedding_models.py  # Cache models (RUN ONCE)
 ├── RAG.md            # 📚 Tài liệu kỹ thuật đầy đủ
@@ -295,13 +326,19 @@ rag_chatbot/
 ## Tham số quan trọng (`.env`)
 
 ```env
-# LLM
-OLLAMA_MODEL=llama3.2
+# LLM (dùng cho chat + reuse cho RAGAS judge)
+OLLAMA_MODEL=llama3.1:8b
 LLM_TEMPERATURE=0.0
+
+# RAGAS (eval-only). Rỗng = reuse OLLAMA_MODEL.
+RAGAS_JUDGE_MODEL=
+RAGAS_TIMEOUT_SECONDS=600
+RAGAS_MAX_RETRIES=3
 
 # Embedding
 EMBEDDING_MODEL=BAAI/bge-base-en-v1.5
 EMBEDDING_DIMENSION=768
+EMBEDDING_DEVICE=cpu
 
 # Chunking
 SECTION_MAX_CHUNK_TOKENS=600
@@ -310,9 +347,17 @@ SECTION_SEMANTIC_MIN_SCORE=0.15
 
 # Retrieval
 TOP_K_RETRIEVAL=40
-TOP_K_RERANK=5
-HYBRID_ALPHA=0.7
+TOP_K_RERANK=10
+USE_RERANKER=true
+RERANKER_MODEL=BAAI/bge-reranker-base
+RERANKER_DEVICE=cpu
+USE_HYBRID_SEARCH=true
+HYBRID_ALPHA=0.5
 RETRIEVAL_SCORE_THRESHOLD=0.3
+
+# Query rewriting (multi-turn)
+QUERY_REWRITE_ENABLED=true
+QUERY_REWRITE_MIN_TURNS=2
 
 # Qdrant
 QDRANT_HOST=localhost
@@ -355,12 +400,17 @@ ollama serve
 curl http://localhost:6333/collections
 ```
 
-**Hoặc restart Qdrant:**
+**Restart container (giữ data):**
 ```powershell
-docker stop qdrant
-docker rm qdrant
-docker run --name qdrant -p 6333:6333 qdrant/qdrant
+docker restart qdrant
 ```
+
+**Nếu container chưa tồn tại:**
+```powershell
+docker run -d --name qdrant -p 6333:6333 -p 6334:6334 -v qdrant_data:/qdrant/storage qdrant/qdrant
+```
+
+⚠️ `docker rm qdrant` sẽ xoá container nhưng **không xoá volume** `qdrant_data` → index giữ nguyên. Chỉ rm khi bạn thực sự muốn reset.
 
 ### ❌ Ingestion lỗi — "Failed to parse PDF"
 
@@ -383,22 +433,20 @@ docker run --name qdrant -p 6333:6333 qdrant/qdrant
 # 1. Activate env
 conda activate rag_chatbot
 
-# 2. Start services (3 terminals)
-docker run --name qdrant -p 6333:6333 qdrant/qdrant    # Terminal 1
-ollama serve                                             # Terminal 2
-uvicorn backend.api.main:app --reload                   # Terminal 3
+# 2. Start services
+docker start qdrant                                              # hoặc docker run lần đầu
+# Ollama: Windows tự chạy — verify bằng: curl http://localhost:11434
+uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
 
-# 3. Ingest documents
+# 3. Ingest documents (lần đầu hoặc khi thêm doc mới)
 python scripts/ingest_documents.py ./data/techviet_docs/
 
 # 4. Test API
-curl http://localhost:8000/api/v1/docs
+# Swagger UI: http://localhost:8000/api/v1/docs
 
 # 5. Run evaluation
-python -m evaluation.run_evaluation --limit 5 --no-ragas
-
-# 6. Check logs
-# Backend logs hiện trực tiếp trên terminal 3
+python -m evaluation.run_evaluation --limit 5 --no-ragas           # single-turn smoke
+python -m evaluation.run_multiturn_evaluation --limit 2 --no-ragas # multi-turn smoke
 ```
 
 ---

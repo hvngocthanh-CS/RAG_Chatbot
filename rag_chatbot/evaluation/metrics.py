@@ -132,7 +132,13 @@ class RAGASEvaluator:
     def __init__(self, model_name: Optional[str] = None):
         if not RAGAS_AVAILABLE:
             raise ImportError("RAGAS not installed. Run: pip install ragas langchain-ollama langchain-huggingface")
-        self._model_name = model_name or settings.OLLAMA_MODEL
+        # Judge model resolution order:
+        # 1) explicit arg, 2) RAGAS_JUDGE_MODEL setting, 3) OLLAMA_MODEL fallback
+        self._model_name = (
+            model_name
+            or getattr(settings, "RAGAS_JUDGE_MODEL", "")
+            or settings.OLLAMA_MODEL
+        )
         self._llm = None
         self._embeddings = None
 
@@ -183,7 +189,10 @@ class RAGASEvaluator:
         result = ragas_evaluate(
             dataset=dataset,
             metrics=metrics,
-            run_config=RunConfig(timeout=300, max_retries=3),
+            run_config=RunConfig(
+                timeout=getattr(settings, "RAGAS_TIMEOUT_SECONDS", 600),
+                max_retries=getattr(settings, "RAGAS_MAX_RETRIES", 3),
+            ),
         )
 
         df = result.to_pandas()

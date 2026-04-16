@@ -50,7 +50,7 @@ echo.
 echo Next steps:
 echo.
 echo 1. Verify .env configuration:
-echo    - LLM_PROVIDER=ollama
+echo    - OLLAMA_MODEL=llama3.1:8b
 echo    - OLLAMA_BASE_URL=http://localhost:11434/v1
 echo.
 echo 2. Start Ollama + RAG Backend:
