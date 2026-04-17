@@ -120,28 +120,15 @@ uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
 
 ### Cách 2: Docker Compose (production-like)
 
-**Terminal 1 — Ollama (vẫn chạy trên host để dùng GPU):**
-```powershell
-# Windows: Ollama tự chạy như service. Verify:
-curl http://localhost:11434
-```
+Đóng gói cả stack thành containers, chạy 1 lệnh là xong. Xem chi tiết ở section **[Serving với Docker Compose](#serving-với-docker-compose)** bên dưới.
 
-**Terminal 2 — Docker Compose (Qdrant + Redis + Backend):**
 ```powershell
 cd <path to rag_chatbot>
-docker-compose -f docker/docker-compose.yml up -d
+cp docker/.env.docker.example .env
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-Backend trong Docker tự kết nối Ollama qua `host.docker.internal:11434`.
-
-**Kiểm tra:**
-```powershell
-# Xem logs backend
-docker logs rag-backend -f
-
-# Healthcheck
-curl http://localhost:8000/health
-```
+Backend trong Docker gọi Ollama trên host qua `host.docker.internal:11434`.
 
 ---
 
@@ -313,10 +300,14 @@ rag_chatbot/
 │   ├── techviet_docs/   # Input PDFs (nằm ở project root: ../data/)
 │   ├── processed/       # Metadata sidecar JSON
 │   └── uploads/         # API uploads
-├── models/           # Cached HuggingFace models
+├── models/           # Cached HuggingFace models (dev mode — Docker bake vào image)
 ├── scripts/          # CLI tools (ingest_documents.py, start_ollama.bat)
-├── docker/           # Dockerfile + docker-compose.yml
-├── setup_embedding_models.py  # Cache models (RUN ONCE)
+├── docker/
+│   ├── Dockerfile            # Multi-stage, non-root, models baked
+│   ├── docker-compose.yml    # backend + qdrant + redis (+ ollama profile)
+│   └── .env.docker.example   # Template .env cho container networking
+├── .dockerignore     # Loại models/, data/, .git khỏi build context
+├── setup_embedding_models.py  # Cache models cho dev mode (RUN ONCE)
 ├── RAG.md            # 📚 Tài liệu kỹ thuật đầy đủ
 └── README.md         # 👈 File này
 ```
@@ -451,33 +442,104 @@ python -m evaluation.run_multiturn_evaluation --limit 2 --no-ragas # multi-turn 
 
 ---
 
-## Production deployment
+## Serving với Docker Compose
 
-### Docker Compose (khuyến nghị)
+Đóng gói toàn bộ stack (backend + Qdrant + Redis) thành containers — chạy 1 lệnh là xong. Đây là cách **khuyến nghị** để deploy.
 
-```powershell
-# 1. Cache models trên host (1 lần)
-python setup_embedding_models.py
+### Files trong `docker/`
 
-# 2. Build image
-docker-compose -f docker/docker-compose.yml build
+| File | Vai trò |
+|---|---|
+| `Dockerfile` | Multi-stage build, non-root user `rag`, bake BGE models vào image |
+| `docker-compose.yml` | Stack: backend + qdrant + redis (+ ollama qua profile), có healthcheck, resource limits, log rotation |
+| `.env.docker.example` | Template `.env` cho container (hostname = service name) |
+| `../.dockerignore` | Loại `models/`, `data/`, `.git`, caches khỏi build context |
 
-# 3. Start services
-docker-compose -f docker/docker-compose.yml up -d
+### Khởi động
 
-# 4. Ingest documents
-docker exec rag-backend python scripts/ingest_documents.py /app/data/techviet_docs/
+```bash
+cd rag_chatbot
 
-# 5. Check logs
-docker logs rag-backend -f
+# 1. Tạo .env (chỉnh OLLAMA_MODEL, CORS_ORIGINS nếu cần)
+cp docker/.env.docker.example .env
+
+# 2. Build + start (Ollama chạy trên host qua host.docker.internal)
+docker compose -f docker/docker-compose.yml up -d --build
+
+# 3. Verify
+docker compose -f docker/docker-compose.yml ps
+curl http://localhost:8000/health
+curl http://localhost:8000/health/ready
 ```
 
-### Kubernetes (nâng cao)
+**Build lần đầu** mất ~10-15 phút (cài torch + download BGE models ~750MB và bake vào image). Rebuild sau đó nhanh nhờ layer cache.
 
-- Prebake models vào Docker image (xem [setup_embedding_models.py](setup_embedding_models.py))
-- Chuyển `ConversationManager` từ in-memory → Redis
-- Qdrant: dùng Qdrant Cloud hoặc StatefulSet
-- Secrets: K8s Secret thay vì `.env` file
+### Profile: chạy Ollama trong container
+
+Mặc định backend gọi Ollama trên host. Nếu muốn Ollama cũng chạy trong container:
+
+```bash
+docker compose -f docker/docker-compose.yml --profile ollama up -d --build
+```
+
+Rồi sửa `.env`:
+```env
+OLLAMA_BASE_URL=http://ollama:11434/v1
+```
+
+Pull model vào container:
+```bash
+docker compose -f docker/docker-compose.yml exec ollama ollama pull llama3.1:8b
+```
+
+### Ingest documents
+
+```bash
+# Copy documents vào volume rồi chạy script trong container
+docker compose -f docker/docker-compose.yml exec backend \
+    python scripts/ingest_documents.py /app/data/techviet_docs/
+```
+
+(`./data` đã được mount vào `/app/data` — file thả vào host hiển thị ngay trong container.)
+
+### Vận hành hàng ngày
+
+```bash
+# Xem logs
+docker compose -f docker/docker-compose.yml logs -f backend
+
+# Restart 1 service
+docker compose -f docker/docker-compose.yml restart backend
+
+# Update sau khi sửa code
+docker compose -f docker/docker-compose.yml up -d --build backend
+
+# Tear down (giữ data trong volume)
+docker compose -f docker/docker-compose.yml down
+
+# Tear down + XOÁ DATA (cẩn thận)
+docker compose -f docker/docker-compose.yml down -v
+```
+
+### Tuning cơ bản
+
+Nếu cần tăng performance, sửa các giá trị này:
+
+| Vị trí | Field | Mặc định | Khi nào đổi |
+|---|---|---|---|
+| `Dockerfile` CMD | `--workers 2` | 2 | Tăng = số CPU cores nếu RAM đủ. Mỗi worker copy model → RAM tăng tuyến tính |
+| `docker-compose.yml` backend | `memory: 4G` | 4G | Tăng nếu workers nhiều hoặc reranker chạy chậm |
+| `.env` | `TOP_K_RETRIEVAL` | 40 | Giảm xuống 20 nếu retrieval chậm |
+| `.env` | `USE_RERANKER` | true | Đặt `false` để tắt reranker (nhanh hơn nhưng chất lượng giảm) |
+
+### Checklist trước khi deploy lên server thật
+
+- [ ] `.env` KHÔNG commit vào git (đã có trong `.gitignore`)
+- [ ] `CORS_ORIGINS` set thành domain frontend, không để `["*"]`
+- [ ] `LOG_FORMAT=json` để dễ parse log
+- [ ] Test healthcheck: `curl http://localhost:8000/health/ready` trả `ready`
+- [ ] Backup volume `qdrant_data` định kỳ (vector DB là tài sản quý nhất)
+- [ ] Pull Ollama model về trước khi start: `ollama pull llama3.1:8b` (nếu dùng host Ollama)
 
 ---
 

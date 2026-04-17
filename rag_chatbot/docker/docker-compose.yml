@@ -1,58 +1,144 @@
-version: "3.8"
+# ==================================================================
+# RAG Chatbot — docker-compose
+# ==================================================================
+# Run from project root:
+#   cp docker/.env.docker.example .env
+#   docker compose -f docker/docker-compose.yml up -d --build
+#
+# Profiles (optional):
+#   --profile ollama  → also run Ollama in a container (default: use host Ollama)
+# ==================================================================
+
+name: rag-chatbot
+
+networks:
+  rag-net:
+    driver: bridge
+
+volumes:
+  qdrant_data:
+  redis_data:
+  ollama_data:
 
 services:
+
+  # --------------------------------------------------------------
+  # Qdrant — vector database
+  # --------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.11.3
+    container_name: rag-qdrant
+    restart: unless-stopped
+    networks: [rag-net]
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # --------------------------------------------------------------
+  # Redis — conversation cache
+  # --------------------------------------------------------------
+  redis:
+    image: redis:7.2-alpine
+    container_name: rag-redis
+    restart: unless-stopped
+    networks: [rag-net]
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # --------------------------------------------------------------
+  # Ollama — LLM runtime (opt-in via --profile ollama)
+  # Default setup uses Ollama on host via host.docker.internal.
+  # --------------------------------------------------------------
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.3.14
+    container_name: rag-ollama
+    restart: unless-stopped
+    profiles: ["ollama"]
+    networks: [rag-net]
     ports:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    # Uncomment below to enable GPU passthrough
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 20s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  qdrant:
-    image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
-
-  rag-backend:
+  # --------------------------------------------------------------
+  # Backend — FastAPI RAG service
+  # --------------------------------------------------------------
+  backend:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    image: rag-chatbot:latest
+    container_name: rag-backend
+    restart: unless-stopped
+    networks: [rag-net]
     ports:
       - "8000:8000"
     env_file:
       - ../.env
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434/v1
-      - QDRANT_HOST=qdrant
-      - REDIS_HOST=redis
-      - USE_CACHE=true
-    depends_on:
-      - ollama
-      - qdrant
-      - redis
+      # Container-network overrides for hostnames (override .env)
+      QDRANT_HOST: qdrant
+      REDIS_HOST: redis
+      USE_CACHE: "true"
+      # Default = host Ollama. Override in .env if using --profile ollama.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ../data:/app/data
-    restart: unless-stopped
-
-volumes:
-  ollama_data:
-  qdrant_data:
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

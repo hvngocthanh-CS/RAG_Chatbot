@@ -1,0 +1,78 @@
+# ==================================================================
+# .dockerignore — keep build context small & reproducible
+# ==================================================================
+# Context is sent to the Docker daemon on every build.
+# Anything here is excluded from COPY commands in the Dockerfile.
+
+# --- Version control ---
+.git
+.gitignore
+.gitattributes
+.github/
+
+# --- Python caches ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# --- Virtualenvs (never ship host env into image) ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Local secrets & env ---
+.env
+.env.*
+!.env.example
+!.env.docker.example
+
+# --- Data & artifacts (mounted at runtime, NOT baked) ---
+data/
+!data/.gitkeep
+models/
+!models/.gitkeep
+logs/
+*.log
+evaluation/reports/
+
+# --- Docs & dev files ---
+*.md
+!README.md
+!RAG.md
+docs/
+notebooks/
+*.ipynb
+
+# --- Build artifacts ---
+build/
+dist/
+*.egg-info/
+wheels/
+pip-wheel-metadata/
+
+# --- Tests (don't ship tests to runtime image) ---
+tests/
+pytest.ini
+
+# --- OS / tooling ---
+.dockerignore
+docker/
+!docker/entrypoint.sh
