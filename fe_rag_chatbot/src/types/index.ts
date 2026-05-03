@@ -1,8 +1,18 @@
+export interface Source {
+  content: string;
+  document_id: string;
+  document_name: string;
+  page_number?: number;
+  chunk_type: string;
+  relevance_score: number;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  sources?: Source[];
 }
 
 export interface ChatRequest {
@@ -22,4 +32,5 @@ export interface StreamChunk {
   content?: string;
   error?: string;
   conversation_id?: string;
+  sources?: Source[];
 }

@@ -10,6 +10,7 @@ interface ChatInterfaceProps {
   streamingContent: string;
   onSendMessage: (message: string) => Promise<void>;
   onUploadComplete: (message: string) => void;
+  onNewConversation: () => void;
 }
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
@@ -18,6 +19,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   streamingContent,
   onSendMessage,
   onUploadComplete,
+  onNewConversation,
 }) => {
   return (
     <div className="flex flex-col h-full bg-white rounded-lg shadow-lg overflow-hidden">
@@ -27,7 +29,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           <h1 className="text-xl font-bold">RAG Chatbot</h1>
           <p className="text-sm opacity-90">Retrieval-Augmented Generation</p>
         </div>
-        <DocumentUpload onUploadComplete={onUploadComplete} />
+        <div className="flex gap-2">
+          <button
+            onClick={onNewConversation}
+            className="px-3 py-1.5 text-sm bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg transition-colors"
+          >
+            New Chat
+          </button>
+          <DocumentUpload onUploadComplete={onUploadComplete} />
+        </div>
       </div>
 
       {/* Messages */}

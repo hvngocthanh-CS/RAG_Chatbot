@@ -45,9 +45,17 @@ async def initialize_services():
     from backend.services.ingestion import DocumentIngestionService
     _services["ingestion"] = DocumentIngestionService()
 
-    # Conversation manager (singleton)
-    from backend.services.conversation import ConversationManager
-    _services["conversation"] = ConversationManager()
+    # Conversation manager — PostgreSQL when DATABASE_URL is set, in-memory otherwise
+    if settings.DATABASE_URL:
+        from backend.services.conversation_pg import PostgreSQLConversationManager
+        conv_mgr = PostgreSQLConversationManager(settings.DATABASE_URL)
+        await conv_mgr.initialize()
+        logger.info("Using PostgreSQL conversation persistence")
+    else:
+        from backend.services.conversation import ConversationManager
+        conv_mgr = ConversationManager()
+        logger.info("Using in-memory conversation storage (set DATABASE_URL for persistence)")
+    _services["conversation"] = conv_mgr
 
     # Cache (optional)
     if settings.USE_CACHE:

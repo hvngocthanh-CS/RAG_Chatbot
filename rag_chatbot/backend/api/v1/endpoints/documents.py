@@ -144,12 +144,17 @@ async def delete_document(document_id: str):
     if not success:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # Also delete the uploaded file
+    # Delete the uploaded file from disk
     for ext in settings.SUPPORTED_EXTENSIONS:
         file_path = os.path.join(settings.UPLOAD_DIR, f"{document_id}{ext}")
         if os.path.exists(file_path):
             os.remove(file_path)
             break
+
+    # Invalidate cached responses that may reference this document
+    cache_service = get_service("cache")
+    if cache_service:
+        await cache_service.invalidate_document_cache(document_id)
 
     logger.info("Document deleted: %s", document_id)
 

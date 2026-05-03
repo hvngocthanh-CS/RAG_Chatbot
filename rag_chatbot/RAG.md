@@ -52,7 +52,7 @@ Upload file (PDF/DOCX/TXT/MD)
   → DocumentPreprocessor   (8 bước clean text)
   → TableExtractor         (tách bảng riêng)
   → SectionChunker         (cắt text thành chunks — section-aware + semantic)
-  → TableChunkBuilder      (cắt bảng thành chunks)
+  → TableChunkBuilder      (3 loại chunk per bảng: table_summary + table + table_rows)
   → EmbeddingService       (BGE-base encode → vector 768-dim)
   → Qdrant upsert          (lưu vector + payload)
   → Rebuild BM25 index     (keyword search index)
@@ -65,15 +65,20 @@ Upload file (PDF/DOCX/TXT/MD)
 User question
   → Cache check            (Redis MD5, optional)
   → QueryRewriter          (LLM viết lại nếu multi-turn ≥ 2)
-  → Embed query            (BGE-base + instruction prefix)
-  → Vector search          (Qdrant cosine, top 40)
-  → Keyword search         (BM25, top 40)
-  → RRF Fusion             (α=0.7, k=60 — gộp kết quả)
-  → Score threshold        (loại chunk score < 0.3)
-  → CrossEncoder Reranker  (BGE-reranker, chọn top 5)
-  → Build prompt           (SYSTEM_PROMPT + context + question)
-  → LLM generate           (Ollama llama3.2, stream SSE)
-  → Lưu conversation       (in-memory OrderedDict)
+  → QueryExpander          (hai chế độ tùy độ phức tạp của câu hỏi)
+      ├── Paraphrase mode  (câu hỏi đơn giản: 2 cách diễn đạt khác, ≥ 5 từ)
+      └── Decompose mode   (câu hỏi phức tạp: sub-questions độc lập, ≥ 8 từ + LLM classifier)
+  → Embed all queries      (BGE-base + instruction prefix, parallel)
+  → Dense confidence probe (top-1 vector score → tăng BM25 weight nếu score < 0.50)
+  → Vector search          (Qdrant cosine, top 70 per query, parallel)
+  → Keyword search         (BM25 cải tiến, top 70 per query, parallel)
+  → RRF Fusion             (α=0.7 default / α=0.55 cho legal queries, k=60 — per query)
+  → Merge results          (dedup by max score across all query variants / sub-questions)
+  → Score threshold        (hybrid: top_score × 0.2 | vector-only: 0.3)
+  → CrossEncoder Reranker  (BGE-reranker, all candidates → top 7 / top 20 cho decomposed)
+  → Build prompt           (SYSTEM_PROMPT + context + sub-question checklist nếu decomposed)
+  → LLM generate           (Ollama llama3.1:8b, stream SSE)
+  → Lưu conversation       (in-memory OrderedDict, lưu original question)
   → Cache response         (Redis, nếu bật)
 ```
 
@@ -104,8 +109,9 @@ rag_chatbot/
 │   │   ├── embedding/service.py      # BGE encode via sentence-transformers
 │   │   ├── vectorstore/qdrant.py     # Qdrant + BM25 in-memory
 │   │   ├── retrieval/
-│   │   │   ├── pipeline.py           # Hybrid search + rerank
+│   │   │   ├── pipeline.py           # Hybrid search + multi-query + rerank
 │   │   │   ├── query_rewriter.py     # LLM rewrite multi-turn
+│   │   │   ├── query_expander.py     # LLM classify → paraphrase / decompose
 │   │   │   └── reranker.py           # CrossEncoder rerank
 │   │   ├── llm/
 │   │   │   ├── service.py            # Ollama via OpenAI SDK
@@ -228,16 +234,40 @@ Score **cao** = 2 câu **khác chủ đề** → điểm cắt tốt. Dùng clas
 
 **File:** [table_chunk_builder.py](backend/services/ingestion/table_chunk_builder.py) · **Class:** `TableChunkBuilder`
 
-Bảng được chunk **riêng biệt** khỏi text:
+Bảng tạo ra **3 loại chunk riêng biệt**:
 
-1. **Whole-table chunk** (`chunk_type="table"`) — cho mọi bảng.
-2. **Row-batch chunks** (`chunk_type="table_rows"`) — chỉ cho bảng > 10 rows, mỗi batch 5 rows.
+| Chunk type | Khi nào | Mục đích |
+|---|---|---|
+| `table_summary` | Mọi bảng | Natural language description để match semantic queries |
+| `table` | Mọi bảng | Full key:value render cho LLM đọc khi tạo câu trả lời |
+| `table_rows` | Bảng > 10 rows | Row batches (3 rows/batch) cho point-lookup queries |
 
-**Tại sao row-batch?** Query kiểu "lương vị trí X là bao nhiêu" chỉ cần vài dòng. Whole-table quá lớn → embedding bị "loãng" (retrieval dilution).
+**Tại sao cần `table_summary`?**
+
+Query `"what activities on Day 4?"` cần match với một chunk mô tả bảng bằng ngôn ngữ tự nhiên. Chunk key:value thuần túy không embed đủ semantic. Summary chunk được generate tự động:
+
+```
+'Day-by-Day Onboarding Schedule' table in section 'Week 1' on page 4:
+15 rows with columns: Day, Activity, Location, Passing Requirement.
+Sample entries — Day: Day 1; Activity: Orientation | Day: Day 8; Activity: Dept Introduction |
+Day: Day 15; Activity: Final Assessment; Passing Requirement: Score ≥ 85%.
+```
+
+Summary lấy mẫu từ 3 vị trí (đầu / giữa / cuối bảng) để embedding cover được toàn bộ data range.
+
+**Column headers trong mọi chunk** — `table_to_text()` và row-batch header đều bao gồm:
+```
+Table: Salary Structure | Columns: Position, Base Salary, Bonus
+```
+Embedding model biết bảng dùng để làm gì → score tăng.
+
+**Row-batch size = 3** (giảm từ 5):
+- 5 rows/batch → Day 4 info bị pha loãng bởi 4 ngày khác
+- 3 rows/batch → Day 4 chiếm 33% chunk, signal mạnh hơn
 
 **Format text** dạng key:value (không dùng CSV/Markdown):
 ```
-Table: Salary Structure (Rows 1-5)
+Table: Salary Structure (Rows 1–3) | Columns: Position, Base Salary, Bonus
 Row 1:
   Position: Senior Engineer
   Base Salary: 2,500 USD
@@ -364,17 +394,123 @@ Output: "chính sách nghỉ phép mới có hiệu lực khi nào?"
 - Lấy 6 turns gần nhất làm context cho LLM
 - **Fallback an toàn:** nếu LLM lỗi → dùng original query, **không block** retrieval
 
-### 7.2 Hybrid Search + RRF Fusion
+### 7.2 Query Expander — hai chế độ
 
-**Toàn bộ flow:**
+**File:** [query_expander.py](backend/services/retrieval/query_expander.py) · **Class:** `QueryExpanderService`
+
+**Vấn đề gốc:** retrieval đơn lẻ miss hai loại lỗi khác nhau:
+1. **Vocabulary mismatch** — query dùng từ khác với văn bản gốc → paraphrase giải quyết.
+2. **Multi-part blindspot** — câu hỏi phức tạp có 4 yêu cầu nhưng chỉ retrieve top 7 chunks → các khía cạnh nhỏ hơn bị loại bỏ → LLM hallucinate phần thiếu.
+
+**Giải pháp:** routing tự động sang một trong hai chế độ:
+
+#### Chế độ 1 — Paraphrase (câu hỏi đơn giản)
 
 ```
-1. Embed query        → vector 768-dim (có instruction prefix)
-2. Vector search      → top 40 results từ Qdrant (cosine similarity)
-3. Keyword search     → top 40 results từ BM25
-4. RRF Fusion         → gộp 2 danh sách thành 1, xếp hạng lại
-5. Score threshold    → loại chunk có score < threshold
-6. Reranker           → CrossEncoder chấm lại top ~12 → lấy top 5
+Input:  "what is the annual leave entitlement?"
+Output: ["how many days off per year are employees allowed?",
+         "paid leave policy number of days"]
+```
+
+- Gọi Ollama với `temperature=0.3`, `max_tokens=150`
+- Sinh `MULTI_QUERY_COUNT` (= 2) cách diễn đạt khác nhau cho cùng ý
+- Tất cả variants tìm kiếm song song, kết quả gộp lại bằng max score
+
+#### Chế độ 2 — Decompose (câu hỏi phức tạp)
+
+```
+Input:  "Explain compliance obligations including regulations, timelines,
+         data handling, and erasure rights after a breach"
+
+Output: ["What regulations apply to TechViet data breach response?",
+         "What notification timelines must TechViet meet after a breach?",
+         "What data handling constraints apply before and after a breach?",
+         "Can data subjects request erasure of financial data after a breach,
+          and when can it be denied?"]
+```
+
+- Gọi Ollama với `temperature=0.0`, `max_tokens=400`
+- LLM tự quyết định số sub-questions — không giới hạn cố định
+- Mỗi sub-question là một retrieval pass độc lập → không sub-question nào bị miss
+
+**Routing logic:**
+
+```
+query ≥ 5 từ?  →  No  → skip (single query)
+               → Yes  → DECOMPOSE_ENABLED=True AND query ≥ 8 từ?
+                            → Yes → LLM classifier (max_tokens=10, temperature=0)
+                                        → 'multi-aspect'/'comparative' → decompose mode
+                                        → 'simple'                     → paraphrase mode
+                                  → LLM fail → regex fallback (_is_multi_part)
+                            → No  → paraphrase mode (temperature=0.3)
+```
+
+**LLM Classifier** (primary routing — queries ≥ 8 từ):
+
+| Label | Ý nghĩa | Mode |
+|---|---|---|
+| `simple` | Một intent, một thứ được hỏi | paraphrase |
+| `comparative` | So sánh ≥ 2 items, versions, hoặc thời điểm | decompose |
+| `multi-aspect` | Nhiều khía cạnh, bước, điều kiện riêng biệt | decompose |
+
+**Regex fallback** (dùng khi LLM classifier lỗi):
+- Câu hỏi có > 1 dấu `?`
+- Có danh sách đánh số (`1.`, `2.`, `①`...)
+- Có cụm từ `including:`, `such as:`, `specifically:`
+- Có `before and after`, `both … and`, `as well as`
+- Từ `and` xuất hiện ≥ 2 lần
+
+**ExpansionResult** — trả về cho pipeline:
+```python
+class ExpansionResult(NamedTuple):
+    queries: List[str]  # paraphrases hoặc sub-questions
+    is_decomposed: bool  # True nếu decompose mode
+```
+
+Pipeline dùng `is_decomposed` để điều chỉnh `top_k` và ngưỡng reranker.
+
+**Fallback:** decompose lỗi → tự động fallback sang paraphrase. Paraphrase lỗi → single-query. **Không bao giờ block retrieval.**
+
+### 7.3 BM25 — Tokenizer cải tiến
+
+**File:** [vectorstore/qdrant.py](backend/services/vectorstore/qdrant.py) · Hàm `_tokenize()`
+
+**Vấn đề cũ:** `query.lower().split()` → tách theo khoảng trắng đơn giản.
+
+**Hậu quả:** `"72-hour"` → `["72-hour"]` (1 token) — đúng. Nhưng `"non-compliance"` bị tách nhầm ở một số edge case, và stopwords (the, a, of...) làm nhiễu BM25 score.
+
+**Tokenizer mới** (`_tokenize(text)`):
+```python
+# 1. Regex extract — giữ nguyên hyphenated compound terms
+tokens = re.findall(r"[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*", text.lower())
+# 2. Lọc stopwords + token < 2 ký tự
+return [t for t in tokens if t not in _STOPWORDS and len(t) > 1]
+```
+
+Ví dụ:
+| Input | Trước | Sau |
+|-------|-------|-----|
+| `"72-hour notification deadline"` | `["72-hour", "notification", "deadline"]` | `["72-hour", "notification", "deadline"]` (giữ compound) |
+| `"the data subject may request"` | `["the", "data", "subject", "may", "request"]` | `["data", "subject", "request"]` (stopwords removed) |
+| `"GDPR Article 33 breach"` | `["gdpr", "article", "33", "breach"]` | `["gdpr", "article", "33", "breach"]` |
+
+Áp dụng **nhất quán** ở cả `build()` (khi index corpus) và `search()` (khi query) — BM25 yêu cầu tokenization giống hệt nhau ở hai đầu.
+
+### 7.4 Hybrid Search + RRF Fusion
+
+**Toàn bộ flow (ví dụ decompose mode với 4 sub-questions):**
+
+```
+1. Embed [original, sub_q1, sub_q2, sub_q3, sub_q4] → 5 vectors (parallel)
+2. Dense confidence probe   → top-1 vector score của original query
+   ↳ score < 0.50 → α giảm xuống 0.50 (BM25 weight tăng từ 30% → 50%)
+3. Vector search × 5 → top 70 per query (parallel, Qdrant cosine)
+4. Keyword search × 5 → top 70 per query (parallel, BM25)
+   ↳ Tổng: 10 search calls, tất cả trong 1 asyncio.gather
+5. RRF Fusion (per query)   → gộp vector+keyword của mỗi query thành 1 list
+6. Merge across queries     → dedup by max score, sort descending
+7. Score threshold          → loại chunk dưới ngưỡng
+8. Reranker (adaptive top_k) → CrossEncoder → top 7 (simple) / top 20 (decomposed)
 ```
 
 ### RRF (Reciprocal Rank Fusion)
@@ -386,20 +522,23 @@ score(doc) = α / (k + rank_vector + 1) + (1 - α) / (k + rank_keyword + 1)
 
 | Tham số | Giá trị | Ý nghĩa |
 |---------|---------|----------|
-| `α` (HYBRID_ALPHA) | 0.7 | **70% trọng số cho dense**, 30% cho keyword |
-| `k` | 60 | Hằng số smoothing (giảm ảnh hưởng rank cao) |
+| `α` (HYBRID_ALPHA) | 0.7 | **70% dense**, 30% keyword — default |
+| `α` (HYBRID_ALPHA_LEGAL) | 0.55 | **55% dense**, 45% keyword — cho legal/compliance queries |
+| `k` | 60 | Hằng số smoothing |
 
-**Tại sao RRF chứ không cộng score?** Score từ cosine (0-1) và BM25 (0-∞) **khác scale hoàn toàn** → cộng trực tiếp vô nghĩa. RRF chỉ dùng **thứ hạng** (rank) nên an toàn — đây là chuẩn công nghiệp.
+**Tại sao có HYBRID_ALPHA_LEGAL?** Query liên quan tới luật, compliance, data breach chứa nhiều exact-match signals: mã điều khoản (`Article 33`), deadline cụ thể (`72-hour`), tên văn bản pháp lý (`GDPR`, `PDPL`). Dense embedding thường miss những term này vì không thấy chúng trong training. Tăng weight BM25 từ 30% → 45% cải thiện rõ recall cho loại query này.
+
+**Multi-query merge:** sau khi mỗi query có list riêng (đã qua RRF), gộp lại bằng **max score** — chunk ranking tốt cho nhiều sub-questions tự nhiên có score cao nhất.
 
 ### Score threshold
 
-Sau fusion, loại chunk có score thấp:
-- Hybrid mode: `min_score = top_score × 0.2`
-- Non-hybrid: `min_score = RETRIEVAL_SCORE_THRESHOLD = 0.3`
+Sau fusion + merge, loại chunk có score thấp:
+- Hybrid mode: `min_score = top_score × HYBRID_RRF_MIN_RATIO (0.2)` — **relative threshold** vì RRF score không có scale cố định
+- Non-hybrid: `min_score = RETRIEVAL_SCORE_THRESHOLD = 0.3` — absolute vì cosine score trên [0,1]
 
-Áp dụng **trước** reranker → giảm noise đưa vào cross-encoder (tốn compute).
+Áp dụng **trước** reranker → giảm noise đưa vào cross-encoder.
 
-### 7.3 Reranker (Two-Stage Retrieval)
+### 7.5 Reranker — Adaptive Top-K và Threshold
 
 **File:** [reranker.py](backend/services/retrieval/reranker.py)
 
@@ -414,14 +553,40 @@ Sau fusion, loại chunk có score thấp:
 | Chính xác | Thấp hơn | **Cao hơn** (cross-attention) |
 | Dùng khi | Stage 1: scan triệu docs | Stage 2: rerank top-k nhỏ |
 
-**Pipeline trong dự án:**
-- Stage 1 (bi-encoder): scan toàn bộ Qdrant → **top 40**
-- Stage 2 (cross-encoder): rerank ~12 candidates → **top 5**
+**Adaptive parameters — tại sao cần?**
+
+Câu hỏi đơn giản: 1 intent → top 7 chunks đủ.
+Câu hỏi phức tạp 4 sub-questions: mỗi sub-question cần 2-3 chunks riêng → cần ≥ 20 chunks để LLM có đủ context cho tất cả.
+
+| Chế độ | top_k | reranker threshold | Lý do |
+|--------|-------|--------------------|-------|
+| Simple (paraphrase) | 7 | 0.35 | Single intent, đủ với 7 chunks |
+| Complex (decomposed) | 20 | 0.20 | 4 sub-questions × 2-3 chunks; threshold thấp hơn vì chunk về sub-question nhỏ sẽ score thấp hơn khi cross-encoder dùng toàn bộ câu hỏi gốc |
+
+**Query dùng để rerank:** luôn là `retrieval_query` (câu gốc/rewritten), **không phải** sub-questions — reranker chấm theo ý định thật của user, không theo từng phần.
 
 **Score normalization:** raw logit → **sigmoid** → `[0, 1]`:
 ```python
 normalized_score = 1.0 / (1.0 + math.exp(-raw_score))
 ```
+
+### 7.6 Structured Prompt cho decomposed queries
+
+**File:** [api/v1/endpoints/chat.py](backend/api/v1/endpoints/chat.py) · Hàm `_build_effective_question()`
+
+Khi retrieval trả về `sub_questions` (non-empty), chat endpoint thêm một checklist vào cuối câu hỏi trước khi gửi cho LLM:
+
+```
+[User question]
+
+[Address each of the following aspects explicitly:
+1. What regulations apply to TechViet data breach response?
+2. What notification timelines must TechViet meet after a breach?
+3. What data handling constraints apply before and after a breach?
+4. Can data subjects request erasure of financial data post-breach, and when can it be denied?]
+```
+
+Điều này ngăn LLM trộn lẫn context một phần giữa các sub-questions và hallucinate phần còn lại. Câu hỏi gốc (không có checklist) vẫn được lưu vào conversation history để rewriter xử lý đúng ở turn tiếp theo.
 
 ---
 
@@ -431,27 +596,41 @@ normalized_score = 1.0 / (1.0 + math.exp(-raw_score))
 
 Phần này giải thích **tất cả kỹ thuật prompt engineering đang dùng trong dự án** — lý thuyết + code thật + lý do chọn. Đọc phần này để học cách viết prompt cho RAG production.
 
-### 8.0 Tổng quan — hai LLM call trong hệ thống
+### 8.0 Tổng quan — ba LLM call trong hệ thống
 
-Mỗi câu hỏi user có thể dẫn tới **2 LLM call** riêng biệt, dùng 2 prompt khác nhau:
+Mỗi câu hỏi user có thể dẫn tới **tối đa 4 LLM call** riêng biệt (khi query ≥ 8 từ):
 
 ```
 User question
     │
     ├──(1)──▶ LLM call: Query Rewriter          [prompts: _REWRITE_SYSTEM]
-    │         Viết lại câu hỏi thành standalone (nếu là follow-up)
+    │         Viết lại câu hỏi thành standalone (nếu là follow-up, turn ≥ 2)
     │         Dùng để retrieval, KHÔNG hiển thị user
     │
-    ├─────── Retrieval (Qdrant + BM25 + reranker) ───────
+    ├──(2)──▶ LLM call: Query Classifier        [prompts: _CLASSIFY_SYSTEM]  ← mới
+    │         Chỉ chạy khi query ≥ 8 từ (max_tokens=10, temperature=0 — rất nhanh)
+    │         Output: 'simple' / 'comparative' / 'multi-aspect'
+    │         Quyết định chế độ expansion, KHÔNG hiển thị user
     │
-    └──(2)──▶ LLM call: Answer Generation        [prompts: SYSTEM_PROMPT]
+    ├──(3)──▶ LLM call: Query Expander          [prompts: _PARAPHRASE_SYSTEM / _DECOMPOSE_SYSTEM]
+    │         Paraphrase mode: sinh 2 phiên bản khác (query đơn giản, ≥ 5 từ)
+    │         Decompose mode: sinh N sub-questions (classifier → multi-aspect/comparative)
+    │         Dùng cho multi-query retrieval, KHÔNG hiển thị user
+    │
+    ├─────── Retrieval (Qdrant + BM25 + probe + reranker, N queries song song) ──────
+    │
+    └──(4)──▶ LLM call: Answer Generation        [prompts: SYSTEM_PROMPT]
               Sinh câu trả lời cuối cùng với citations
+              (+ sub-question checklist trong user message nếu decomposed)
 ```
 
 | Prompt | File | Khi nào chạy | Mục đích |
 |---|---|---|---|
 | `_REWRITE_SYSTEM` | `query_rewriter.py:19-40` | Turn ≥ 2, câu hỏi có pronoun/ellipsis | Rewrite follow-up thành standalone query |
-| `SYSTEM_PROMPT` | `prompts.py:7-45` | Mọi câu hỏi | Sinh câu trả lời grounded + citations |
+| `_CLASSIFY_SYSTEM` | `query_expander.py` | Query ≥ 8 từ | Phân loại simple/comparative/multi-aspect để route đúng mode |
+| `_PARAPHRASE_SYSTEM` | `query_expander.py` | Query ≥ 5 từ, classifier → simple | Sinh 2 paraphrase cho multi-query retrieval |
+| `_DECOMPOSE_SYSTEM` | `query_expander.py` | Classifier → multi-aspect/comparative | Sinh atomic sub-questions, một per retrieval pass |
+| `SYSTEM_PROMPT` | `prompts.py` | Mọi câu hỏi | Sinh câu trả lời grounded + citations |
 
 ---
 
@@ -716,7 +895,7 @@ Không có separator, model có thể nhầm tưởng `QUESTION:` là một ph�
 
 **File:** `query_rewriter.py:19-47`
 
-Đây là **LLM call thứ 2** trong hệ thống, chuyên biệt cho rewrite câu hỏi. Khác system prompt chính ở chỗ: **output không hiển thị user**, chỉ dùng cho retrieval.
+Đây là **LLM call thứ nhất** trong hệ thống, chuyên biệt cho rewrite câu hỏi. Khác system prompt chính ở chỗ: **output không hiển thị user**, chỉ dùng cho retrieval.
 
 #### 8.6.1 Prompt structure
 
@@ -844,8 +1023,9 @@ Bảng checklist để bạn nhớ nhanh **dự án này dùng kỹ thuật gì*
 | 24 | **Heuristic Gating** | Rewriter | Skip LLM khi câu self-contained |
 | 25 | **Defensive Output Parsing** | Rewriter | Sanitize + validate + fallback |
 | 26 | **Low-Temperature Deterministic** | Cả 2 LLM call | `temperature=0` cho reproducibility |
+| 27 | **LLM Query Classifier** | `_CLASSIFY_SYSTEM` | 1-label output (simple/comparative/multi-aspect) quyết định routing paraphrase vs decompose |
 
-**26 kỹ thuật prompt engineering** đã áp dụng trong dự án này.
+**27 kỹ thuật prompt engineering** đã áp dụng trong dự án này.
 
 ---
 
@@ -853,12 +1033,14 @@ Bảng checklist để bạn nhớ nhanh **dự án này dùng kỹ thuật gì*
 
 | Kỹ thuật | Có trong project? | Khi nào nên thêm |
 |---|---|---|
+| **Dense Confidence Probe** | ✅ | pipeline.py — top-1 vector score → tự động boost BM25 weight khi dense confidence < 0.50 |
+| **Table Summary Chunk** | ✅ | table_chunk_builder.py — natural language description cho mỗi bảng, match semantic queries không biết tên bảng |
+| **LLM Query Classifier** | ✅ | query_expander.py — phân loại simple/comparative/multi-aspect trước khi expand |
 | **Few-shot examples** | ❌ | Nếu citation format hay sai → thêm 2-3 example trong system prompt |
 | **Explicit CoT** (`<think>` tags) | ❌ | Nếu conditional/multi-hop fail nhiều trong eval |
 | **Chain-of-Verification (CoVe)** | ❌ | Nếu `faithfulness` < 0.7 sau khi đã thử các cách rẻ hơn |
 | **Self-consistency (N-best)** | ❌ | Rất tốn compute — chỉ dùng cho critical decision |
 | **HyDE** (Hypothetical Document Embeddings) | ❌ | Nếu retrieval miss info vì query ngắn/mơ hồ |
-| **Multi-query expansion** | ❌ | Similar HyDE — mở rộng 1 query thành N query |
 | **Structured output (JSON schema)** | ❌ | Khi cần API output được parse bởi downstream system |
 | **Reflection / Self-critique loop** | ❌ | Agentic use case — RAG thuần ít cần |
 | **Tool calling / function calling** | ❌ | Khi chatbot cần action ngoài retrieval (query DB, call API...) |
@@ -1145,7 +1327,8 @@ Tất cả config qua Pydantic `BaseSettings`, đọc từ `.env`:
 | Semantic look-back | 3 | settings.py |
 | Semantic min score | 0.15 | settings.py |
 | Large table threshold | > 10 rows | table_chunk_builder.py |
-| Row batch size | 5 | table_chunk_builder.py |
+| Row batch size | 3 | table_chunk_builder.py |
+| Table chunk types | table_summary + table + table_rows | table_chunk_builder.py |
 
 ### Embedding
 
@@ -1161,12 +1344,30 @@ Tất cả config qua Pydantic `BaseSettings`, đọc từ `.env`:
 
 | Tham số | Giá trị | File |
 |---------|---------|------|
-| Top-K retrieval | 40 | settings.py |
-| Top-K rerank | 5 | settings.py |
-| Hybrid alpha (RRF) | 0.7 | settings.py |
+| Top-K retrieval | 70 | settings.py |
+| Top-K rerank (simple) | 7 | settings.py |
+| Top-K rerank (complex/decomposed) | 20 | settings.py |
+| Hybrid alpha default (RRF) | 0.7 | settings.py |
+| Hybrid alpha legal queries | 0.55 | settings.py |
+| Hybrid RRF min ratio | 0.2 | settings.py |
+| Dense fallback threshold | 0.50 | settings.py |
+| Hybrid alpha (low confidence) | 0.50 | settings.py |
 | RRF k constant | 60 | pipeline.py |
-| Score threshold | 0.3 | settings.py |
+| Score threshold (non-hybrid) | 0.3 | settings.py |
+| Reranker score threshold (simple) | 0.35 | settings.py |
+| Reranker score threshold (complex) | 0.20 | settings.py |
 | Reranker model | BAAI/bge-reranker-base | settings.py |
+| Multi-query enabled | True | settings.py |
+| Multi-query count (paraphrase) | 2 | settings.py |
+| Decompose enabled | True | settings.py |
+| Decompose min words | 8 | settings.py |
+| Query expander min words | 5 | query_expander.py |
+| Query classifier temperature | 0.0 | query_expander.py |
+| Query classifier max tokens | 10 | query_expander.py |
+| Query expander (paraphrase) temperature | 0.3 | query_expander.py |
+| Query expander (paraphrase) max tokens | 150 | query_expander.py |
+| Query expander (decompose) temperature | 0.0 | query_expander.py |
+| Query expander (decompose) max tokens | 400 | query_expander.py |
 | Query rewrite min turns | 2 | settings.py |
 | Query rewrite max tokens | 120 | query_rewriter.py |
 

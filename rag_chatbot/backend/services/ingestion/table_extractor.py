@@ -37,7 +37,13 @@ class TableExtractor:
             title_parts.append(f"Page {table.page_number}")
         if title_parts:
             lines.append(f"Table: {' | '.join(title_parts)}")
-            lines.append("")
+
+        # Column headers give the embedding model critical context about what
+        # this table is about — without them, a row chunk looks like generic
+        # key:value text with no topic signal.
+        if table.headers:
+            lines.append(f"Columns: {', '.join(table.headers)}")
+        lines.append("")
 
         for row_idx, row in enumerate(table.rows, 1):
             lines.append(f"Row {row_idx}:")

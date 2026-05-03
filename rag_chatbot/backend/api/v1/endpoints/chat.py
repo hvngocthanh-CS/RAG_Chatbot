@@ -50,15 +50,17 @@ async def chat(request: ChatRequest):
 
     # Conversation
     conversation_manager = get_service("conversation")
-    conversation_id = request.conversation_id or conversation_manager.create_conversation()
-    conversation_history = conversation_manager.get_history(conversation_id) or []
+    conversation_id = request.conversation_id or await conversation_manager.create_conversation()
+    conversation_history = await conversation_manager.get_history(conversation_id) or []
 
     # Retrieve
-    retrieved_chunks = await retrieval_service.retrieve(
+    retrieval_result = await retrieval_service.retrieve(
         query=request.question,
         filters=request.filters,
         conversation_history=conversation_history,
     )
+    retrieved_chunks = retrieval_result["chunks"]
+    sub_questions = retrieval_result["sub_questions"]
 
     if not retrieved_chunks:
         raise HTTPException(
@@ -67,31 +69,36 @@ async def chat(request: ChatRequest):
         )
 
     context = _format_context(retrieved_chunks)
+    # When the query was decomposed, pass the sub-question checklist to the
+    # LLM so it addresses every aspect explicitly rather than blending partial
+    # context across sub-questions and hallucinating the missing pieces.
+    effective_question = _build_effective_question(request.question, sub_questions)
 
     # Streaming response
     if request.stream:
         return StreamingResponse(
             _stream_response(
                 llm_service=llm_service,
-                question=request.question,
+                question=effective_question,
                 context=context,
                 conversation_history=conversation_history,
                 conversation_id=conversation_id,
                 retrieved_chunks=retrieved_chunks,
                 conversation_manager=conversation_manager,
+                original_question=request.question,
             ),
             media_type="text/event-stream",
         )
 
     # Non-streaming response
     answer = await llm_service.generate(
-        question=request.question,
+        question=effective_question,
         context=context,
         conversation_history=conversation_history,
     )
 
-    conversation_manager.add_message(conversation_id, "user", request.question)
-    conversation_manager.add_message(conversation_id, "assistant", answer)
+    await conversation_manager.add_message(conversation_id, "user", request.question)  # store original
+    await conversation_manager.add_message(conversation_id, "assistant", answer)
 
     processing_time = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
 
@@ -115,7 +122,7 @@ async def chat(request: ChatRequest):
 @router.get("/chat/conversations/{conversation_id}")
 async def get_conversation(conversation_id: str):
     conversation_manager = get_service("conversation")
-    history = conversation_manager.get_history(conversation_id)
+    history = await conversation_manager.get_history(conversation_id)
     if history is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"conversation_id": conversation_id, "messages": history}
@@ -124,7 +131,7 @@ async def get_conversation(conversation_id: str):
 @router.delete("/chat/conversations/{conversation_id}")
 async def delete_conversation(conversation_id: str):
     conversation_manager = get_service("conversation")
-    if not conversation_manager.delete_conversation(conversation_id):
+    if not await conversation_manager.delete_conversation(conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "success", "message": "Conversation deleted"}
 
@@ -141,6 +148,7 @@ async def _stream_response(
     conversation_id: str,
     retrieved_chunks: List[dict],
     conversation_manager,
+    original_question: str = None,
 ):
     """SSE generator for streaming response."""
     sources = _build_source_chunks(retrieved_chunks)
@@ -167,8 +175,9 @@ async def _stream_response(
             fallback = error_message or "No relevant answer found in the provided documents."
             yield f"data: {json.dumps({'type': 'token', 'content': fallback})}\n\n"
 
-        conversation_manager.add_message(conversation_id, "user", question)
-        conversation_manager.add_message(
+        stored_question = original_question if original_question is not None else question
+        await conversation_manager.add_message(conversation_id, "user", stored_question)
+        await conversation_manager.add_message(
             conversation_id, "assistant",
             full_answer if full_answer else (error_message or ""),
         )
@@ -179,8 +188,24 @@ async def _stream_response(
         yield f"data: {json.dumps(done_payload)}\n\n"
 
 
+def _build_effective_question(question: str, sub_questions: List[str]) -> str:
+    """
+    For decomposed queries, append an explicit sub-question checklist so the
+    LLM addresses every aspect rather than blending partial context and
+    hallucinating the missing pieces.
+    """
+    if not sub_questions:
+        return question
+    checklist = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(sub_questions))
+    return (
+        f"{question}\n\n"
+        f"[Address each of the following aspects explicitly:\n{checklist}]"
+    )
+
+
 def _format_context(chunks: List[dict]) -> str:
     """Format retrieved chunks into a context block for the LLM."""
+    n = len(chunks)
     parts = []
     for i, chunk in enumerate(chunks, 1):
         meta = chunk["metadata"]
@@ -197,8 +222,18 @@ def _format_context(chunks: List[dict]) -> str:
             annotations.append(f"Version: {meta['version']}")
         annotation_str = (" | " + " | ".join(annotations)) if annotations else ""
 
-        type_label = ", Type: Table" if chunk_type in ("table", "table_rows") else ""
+        type_label = (
+            ", Type: Table"
+            if chunk_type in ("table", "table_rows", "table_summary")
+            else ""
+        )
         header = f"[Source {i}: {source}, Page {page}{type_label}{annotation_str}]"
         parts.append(f"{header}\n{chunk['content']}\n")
 
-    return "\n---\n".join(parts)
+    # Explicit source-range header so the LLM cannot hallucinate source numbers
+    # outside the valid range (e.g. citing Source 17 when only 5 were retrieved).
+    range_header = (
+        f"[{n} source{'s' if n != 1 else ''} retrieved | "
+        f"valid citations: [Source 1] through [Source {n}] ONLY]\n\n"
+    )
+    return range_header + "\n---\n".join(parts)

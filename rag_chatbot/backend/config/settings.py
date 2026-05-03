@@ -72,18 +72,62 @@ class Settings(BaseSettings):
     SECTION_SEMANTIC_MIN_SCORE: float = 0.15
 
     # --- Retrieval ---
-    TOP_K_RETRIEVAL: int = 40
-    TOP_K_RERANK: int = 5
+    TOP_K_RETRIEVAL: int = 70
+    # Final chunk count passed to the LLM.  Complex multi-part questions use
+    # TOP_K_RERANK_COMPLEX to ensure context for all sub-questions survives
+    # after reranking (roughly 2-3 chunks per sub-question).
+    TOP_K_RERANK: int = 7
+    TOP_K_RERANK_COMPLEX: int = 20
     USE_RERANKER: bool = True
     RERANKER_MODEL: str = "BAAI/bge-reranker-base"
     RERANKER_DEVICE: Literal["cpu", "cuda"] = "cpu"
     USE_HYBRID_SEARCH: bool = True
+    # Default hybrid alpha — 70% dense, 30% keyword.
     HYBRID_ALPHA: float = 0.7
+    # Alpha for legal/compliance queries: more keyword weight because statute
+    # numbers, deadlines, and article references are exact-match signals that
+    # dense embeddings routinely miss.
+    HYBRID_ALPHA_LEGAL: float = 0.55
+    # Relative floor for hybrid (RRF) results: drop any chunk whose RRF score
+    # is below this fraction of the top-ranked chunk's score.  Keeps the
+    # candidate pool clean before the cross-encoder without requiring a
+    # hand-tuned absolute threshold (RRF scores are not on a 0-1 scale).
+    HYBRID_RRF_MIN_RATIO: float = 0.2
+    # Keyword fallback: when the top-1 dense score is below this threshold the
+    # query likely contains exact-match signals (codes, numbers, rare terms)
+    # that BM25 handles better than dense embeddings.  Alpha is capped at
+    # HYBRID_ALPHA_FALLBACK to give BM25 equal or higher weight.
+    HYBRID_DENSE_FALLBACK_THRESHOLD: float = 0.50
+    HYBRID_ALPHA_FALLBACK: float = 0.50
     RETRIEVAL_SCORE_THRESHOLD: float = 0.3
+    # Reranker relevance gate — simple queries use the default threshold.
+    # Complex decomposed queries use a lower threshold because a chunk
+    # covering only one of four sub-questions will legitimately score lower
+    # against the combined query but is still required context.
+    RERANKER_SCORE_THRESHOLD: float = 0.35
+    RERANKER_SCORE_THRESHOLD_COMPLEX: float = 0.20
 
     # --- Query Rewriting ---
     QUERY_REWRITE_ENABLED: bool = True
     QUERY_REWRITE_MIN_TURNS: int = 2
+
+    # --- Multi-Query Retrieval ---
+    # When MULTI_QUERY_ENABLED is True, the query expander runs in one of two
+    # modes depending on the question:
+    #   paraphrase mode — generates MULTI_QUERY_COUNT synonymous phrasings
+    #                     (for simple, single-intent queries)
+    #   decompose mode  — generates atomic sub-questions, one per aspect
+    #                     (for complex multi-part questions)
+    # Set MULTI_QUERY_ENABLED=False to disable all expansion (single-query).
+    MULTI_QUERY_ENABLED: bool = True
+    MULTI_QUERY_COUNT: int = 2  # paraphrase variants for simple queries
+
+    # --- Query Decomposition ---
+    # Decomposition is activated when a query has multi-part signals (numbered
+    # lists, "including:", multiple "and"s, etc.) AND is at least
+    # DECOMPOSE_MIN_WORDS long.  Requires MULTI_QUERY_ENABLED=True.
+    DECOMPOSE_ENABLED: bool = True
+    DECOMPOSE_MIN_WORDS: int = 8
 
     # --- Cache (Redis) ---
     USE_CACHE: bool = False
@@ -91,6 +135,12 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_PASSWORD: Optional[str] = None
     CACHE_TTL: int = 3600
+
+    # --- Conversation Persistence (PostgreSQL) ---
+    # Set to enable persistent conversations across restarts.
+    # Format: postgresql+asyncpg://user:password@host:5432/dbname
+    # Leave empty to use in-memory storage (default).
+    DATABASE_URL: Optional[str] = None
 
     # --- Storage ---
     UPLOAD_DIR: str = "./data/uploads"

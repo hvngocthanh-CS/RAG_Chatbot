@@ -13,6 +13,7 @@ Design decisions:
 """
 import asyncio
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
@@ -26,6 +27,33 @@ from qdrant_client.models import (
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# BM25 tokenizer
+# ---------------------------------------------------------------------------
+
+_STOPWORDS = frozenset({
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "to", "of", "and", "or", "in", "on", "at", "for", "with", "by",
+    "from", "as", "this", "that", "these", "those", "it", "its",
+    "will", "shall", "may", "must", "can", "do", "does", "did",
+    "have", "has", "had", "not", "no", "if", "then", "when", "where",
+    "which", "who", "what", "how", "any", "all", "each", "per",
+})
+
+
+def _tokenize(text: str) -> List[str]:
+    """
+    Tokenize text for BM25.
+
+    Preserves hyphenated compounds (e.g. '72-hour', 'non-compliance') as
+    single tokens — naive split() would break these into fragments that BM25
+    cannot match against the original terms in legal/compliance documents.
+    Stopwords are removed to reduce noise without hurting recall on content
+    words.
+    """
+    tokens = re.findall(r"[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*", text.lower())
+    return [t for t in tokens if t not in _STOPWORDS and len(t) > 1]
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +100,7 @@ class _BM25Index:
             self._dirty = False
             return
 
-        tokenised = [doc.lower().split() for doc in docs]
+        tokenised = [_tokenize(doc) for doc in docs]
         self._bm25 = BM25Okapi(tokenised)
         self._dirty = False
         logger.info("BM25 index built: %d documents", len(docs))
@@ -82,7 +110,7 @@ class _BM25Index:
         if self._bm25 is None or not self._ids:
             return []
 
-        scores = self._bm25.get_scores(query.lower().split())
+        scores = self._bm25.get_scores(_tokenize(query))
         top_indices = sorted(
             range(len(scores)), key=lambda i: scores[i], reverse=True
         )[:top_k]

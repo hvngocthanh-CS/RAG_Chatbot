@@ -94,7 +94,8 @@ class DocumentIngestionService:
 
             await self._embed_and_store(chunks, metadata)
 
-            text_chunks = sum(1 for c in chunks if c["metadata"].get("chunk_type") not in ("table", "table_rows"))
+            _table_types = {"table", "table_rows", "table_summary"}
+            text_chunks = sum(1 for c in chunks if c["metadata"].get("chunk_type") not in _table_types)
             table_chunks = len(chunks) - text_chunks
             tables_count = sum(1 for c in chunks if c["metadata"].get("chunk_type") == "table")
 

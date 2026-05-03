@@ -19,6 +19,7 @@ volumes:
   qdrant_data:
   redis_data:
   ollama_data:
+  postgres_data:
 
 services:
 
@@ -63,6 +64,36 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # --------------------------------------------------------------
+  # PostgreSQL — conversation persistence (opt-in via --profile postgres)
+  # Activate: docker compose --profile postgres up -d
+  # Set DATABASE_URL=postgresql+asyncpg://chatbot:chatbot@postgres:5432/chatbot in .env
+  # --------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: rag-postgres
+    restart: unless-stopped
+    profiles: ["postgres"]
+    networks: [rag-net]
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: chatbot
+      POSTGRES_PASSWORD: chatbot
+      POSTGRES_DB: chatbot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatbot -d chatbot"]
+      interval: 10s
+      timeout: 5s
       retries: 5
     logging:
       driver: json-file

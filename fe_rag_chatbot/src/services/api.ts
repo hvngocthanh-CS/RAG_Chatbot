@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { ChatRequest, StreamChunk } from '../types';
+import { ChatRequest, Source, StreamChunk } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
@@ -60,6 +60,7 @@ export const chatAPI = {
               yield {
                 type: 'sources' as const,
                 conversation_id: data.conversation_id,
+                sources: (data.sources ?? []) as Source[],
               };
             } else if (data.type === 'done') {
               yield { type: 'done' };
