@@ -50,7 +50,7 @@ async def test_chat_returns_cached_response(client, mock_cache):
 
 @pytest.mark.asyncio
 async def test_chat_no_documents_returns_404(client, mock_retrieval):
-    mock_retrieval.retrieve.return_value = []
+    mock_retrieval.retrieve.return_value = {"chunks": [], "sub_questions": []}
     response = await client.post(
         "/api/v1/chat",
         json={"question": "Any question", "stream": False},

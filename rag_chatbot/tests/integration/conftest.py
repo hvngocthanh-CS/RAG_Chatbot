@@ -83,7 +83,7 @@ def mock_ingestion():
 @pytest.fixture
 def mock_retrieval():
     svc = AsyncMock()
-    svc.retrieve.return_value = [SAMPLE_CHUNK]
+    svc.retrieve.return_value = {"chunks": [SAMPLE_CHUNK], "sub_questions": []}
     return svc
 
 

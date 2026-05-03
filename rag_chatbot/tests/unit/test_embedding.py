@@ -7,12 +7,18 @@ Validates that the EmbeddingService correctly embeds:
   - Section-aware chunks (heading prefix preserved in vector)
 """
 
+import os
 import pytest
 import numpy as np
 
 from backend.services.embedding import EmbeddingService
 from backend.services.ingestion import SectionChunker
 from backend.config import settings
+
+pytestmark = pytest.mark.skipif(
+    not os.path.isdir("models"),
+    reason="Embedding model not downloaded — run setup_embedding_models.py first",
+)
 
 
 # ---------------------------------------------------------------------------
