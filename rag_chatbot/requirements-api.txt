@@ -11,6 +11,17 @@ pydantic==2.5.3
 pydantic-settings==2.1.0
 
 # ===========================================
+# Monitoring
+# ===========================================
+prometheus-client>=0.20.0
+prometheus-fastapi-instrumentator>=6.1.0
+
+# ===========================================
+# Cache (Redis)
+# ===========================================
+redis>=5.0.0
+
+# ===========================================
 # Document Processing
 # ===========================================
 pdfplumber==0.10.3
@@ -36,7 +47,7 @@ qdrant-client==1.7.0
 # ===========================================
 # LLM Client (OpenAI-compatible for vLLM/Ollama)
 # ===========================================
-openai==1.10.0
+openai>=1.52.0
 
 # ===========================================
 # Evaluation & Metrics (optional, for evaluation/run_evaluation.py)

@@ -12,6 +12,10 @@ from fastapi.responses import StreamingResponse
 from backend.config import settings
 from backend.services import get_service
 from backend.api.v1.schemas.chat import ChatRequest, ChatResponse, SourceChunk
+from backend.core.metrics import (
+    RETRIEVAL_DURATION, LLM_DURATION, RETRIEVED_CHUNKS,
+    CACHE_HITS, CACHE_MISSES, ACTIVE_CONVERSATIONS,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -46,21 +50,26 @@ async def chat(request: ChatRequest):
         cached = await cache_service.get_cached_response(request.question, request.filters)
         if cached:
             logger.info("Cache hit for: %s", request.question[:50])
+            CACHE_HITS.inc()
             return cached
+    CACHE_MISSES.inc()
 
     # Conversation
     conversation_manager = get_service("conversation")
     conversation_id = request.conversation_id or await conversation_manager.create_conversation()
     conversation_history = await conversation_manager.get_history(conversation_id) or []
+    ACTIVE_CONVERSATIONS.set(len(conversation_manager._conversations))
 
     # Retrieve
-    retrieval_result = await retrieval_service.retrieve(
-        query=request.question,
-        filters=request.filters,
-        conversation_history=conversation_history,
-    )
+    with RETRIEVAL_DURATION.time():
+        retrieval_result = await retrieval_service.retrieve(
+            query=request.question,
+            filters=request.filters,
+            conversation_history=conversation_history,
+        )
     retrieved_chunks = retrieval_result["chunks"]
     sub_questions = retrieval_result["sub_questions"]
+    RETRIEVED_CHUNKS.observe(len(retrieved_chunks))
 
     if not retrieved_chunks:
         raise HTTPException(
@@ -91,11 +100,12 @@ async def chat(request: ChatRequest):
         )
 
     # Non-streaming response
-    answer = await llm_service.generate(
-        question=effective_question,
-        context=context,
-        conversation_history=conversation_history,
-    )
+    with LLM_DURATION.time():
+        answer = await llm_service.generate(
+            question=effective_question,
+            context=context,
+            conversation_history=conversation_history,
+        )
 
     await conversation_manager.add_message(conversation_id, "user", request.question)  # store original
     await conversation_manager.add_message(conversation_id, "assistant", answer)

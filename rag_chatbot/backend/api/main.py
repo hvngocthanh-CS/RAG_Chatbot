@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from backend.api.middleware import CorrelationIdMiddleware
 from backend.api.v1.endpoints import chat, documents, health
@@ -58,6 +59,13 @@ def create_app() -> FastAPI:
     # API routes with prefix
     app.include_router(documents.router, prefix=settings.API_PREFIX, tags=["Documents"])
     app.include_router(chat.router, prefix=settings.API_PREFIX, tags=["Chat"])
+
+    # Prometheus metrics — exposes /metrics (excluded from docs)
+    Instrumentator(
+        should_group_status_codes=True,
+        should_ignore_untemplated=True,
+        excluded_handlers=[r"/health.*", r"/metrics"],
+    ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
     @app.get("/")
     async def root():

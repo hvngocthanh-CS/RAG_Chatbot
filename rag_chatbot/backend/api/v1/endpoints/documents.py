@@ -10,6 +10,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from backend.config import settings
 from backend.core.exceptions import IngestionError
 from backend.services import get_service
+from backend.core.metrics import DOCUMENTS_INGESTED, DOCUMENTS_DELETED, INGESTION_DURATION
 from backend.api.v1.schemas.documents import (
     DocumentMetadata,
     DocumentListResponse,
@@ -81,9 +82,11 @@ async def upload_document(
     try:
         logger.info("Processing document: %s", file.filename)
         ingestion_service = get_service("ingestion")
-        result = await ingestion_service.process_document(file_path, metadata)
+        with INGESTION_DURATION.time():
+            result = await ingestion_service.process_document(file_path, metadata)
 
         logger.info("Document processed: %s (%d chunks)", file.filename, result.get("chunks_count", 0))
+        DOCUMENTS_INGESTED.labels(file_type=file_ext).inc()
 
         return UploadResponse(
             document_id=document_id,
@@ -156,6 +159,7 @@ async def delete_document(document_id: str):
     if cache_service:
         await cache_service.invalidate_document_cache(document_id)
 
+    DOCUMENTS_DELETED.inc()
     logger.info("Document deleted: %s", document_id)
 
     return {"status": "success", "message": f"Document {document_id} deleted"}

@@ -22,7 +22,8 @@
 13. [Logging — Correlation ID](#13-logging--correlation-id)
 14. [Evaluation](#14-evaluation)
 15. [Docker Deployment](#15-docker-deployment)
-16. [Tổng hợp tham số](#16-tổng-hợp-tham-số)
+16. [Monitoring — Prometheus + Grafana](#16-monitoring--prometheus--grafana)
+17. [Tổng hợp tham số](#17-tổng-hợp-tham-số)
 
 ---
 
@@ -90,11 +91,11 @@ User question
 rag_chatbot/
 ├── backend/
 │   ├── api/
-│   │   ├── main.py                    # FastAPI app + lifespan startup/shutdown
+│   │   ├── main.py                    # FastAPI app + lifespan + /metrics endpoint
 │   │   ├── middleware.py              # CorrelationIdMiddleware
 │   │   └── v1/endpoints/
-│   │       ├── chat.py               # POST /chat (SSE streaming)
-│   │       ├── documents.py          # Upload / delete documents
+│   │       ├── chat.py               # POST /chat (SSE streaming) + metrics
+│   │       ├── documents.py          # Upload / delete documents + metrics
 │   │       └── health.py             # GET /health
 │   ├── services/
 │   │   ├── __init__.py               # Service Registry (get_service)
@@ -121,6 +122,7 @@ rag_chatbot/
 │   ├── core/
 │   │   ├── exceptions.py             # RAGException hierarchy
 │   │   ├── logging.py                # JSON/console + correlation ID
+│   │   ├── metrics.py                # Prometheus custom metrics (RAG pipeline)
 │   │   └── resilience.py             # CircuitBreaker + retry
 │   ├── models/document.py            # TextBlock, Table, ParsedDocument
 │   └── config/settings.py            # Pydantic BaseSettings (.env)
@@ -129,7 +131,17 @@ rag_chatbot/
 │   └── run_evaluation.py             # CLI chạy eval
 ├── scripts/ingest_documents.py       # CLI batch ingest
 ├── setup_embedding_models.py         # Cache models trước khi chạy backend
-└── docker/                           # Dockerfile + docker-compose.yml
+└── docker/
+    ├── Dockerfile                    # Multi-stage build, non-root, models baked
+    ├── docker-compose.yml            # Full stack: backend + qdrant + redis + prometheus + grafana
+    ├── prometheus/
+    │   └── prometheus.yml            # Scrape config (backend + qdrant + redis)
+    └── grafana/
+        ├── provisioning/
+        │   ├── datasources/          # Auto-connect Grafana → Prometheus
+        │   └── dashboards/           # Auto-load dashboard khi start
+        └── dashboards/
+            └── rag_chatbot.json      # Dashboard 14 panels (RAG pipeline metrics)
 ```
 
 ---
@@ -1146,6 +1158,23 @@ def get_service(name: str) -> Any:
 
 → Mọi nơi gọi `get_service("embedding")` — tránh circular import, dễ mock khi test.
 
+### Prometheus Metrics Endpoint
+
+**Library:** `prometheus-fastapi-instrumentator`
+
+`main.py` khởi tạo instrumentator một lần khi `create_app()`:
+
+```python
+Instrumentator(
+    should_group_status_codes=True,
+    excluded_handlers=[r"/health.*", r"/metrics"],
+).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+```
+
+→ Tự động expose `/metrics` với **HTTP request metrics** (count, latency, error rate) cho mọi endpoint mà không cần thêm code vào từng handler.
+
+Các custom RAG metrics được định nghĩa tách biệt trong `backend/core/metrics.py` — xem chi tiết ở [Section 16](#16-monitoring--prometheus--grafana).
+
 ### CorrelationIdMiddleware
 
 **File:** [middleware.py](backend/api/middleware.py)
@@ -1291,12 +1320,16 @@ Dùng **LLM (Ollama) chấm điểm** output — tốn hơn nhưng đánh giá �
 
 | Service | Image | Port | Vai trò |
 |---------|-------|------|---------|
-| `ollama` | `ollama/ollama` | 11434 | LLM inference |
-| `qdrant` | `qdrant/qdrant` | 6333 | Vector database |
-| `redis` | `redis:7-alpine` | 6379 | Cache (optional) |
-| `rag-backend` | Built từ Dockerfile | 8000 | FastAPI app |
+| `qdrant` | `qdrant/qdrant:v1.11.3` | 6333 | Vector database |
+| `redis` | `redis:7.2-alpine` | 6379 | Cache (optional) |
+| `ollama` | `ollama/ollama` | 11434 | LLM inference (profile) |
+| `postgres` | `postgres:16-alpine` | 5432 | Conversation persistence (profile) |
+| `backend` | Built từ Dockerfile | 8000 | FastAPI app |
+| `redis-exporter` | `oliver006/redis_exporter` | 9121 | Redis metrics cho Prometheus |
+| `prometheus` | `prom/prometheus:v2.52.0` | 9090 | Thu thập metrics |
+| `grafana` | `grafana/grafana:10.4.3` | 3000 | Dashboard visualization |
 
-Backend gọi services qua docker-compose DNS: `http://ollama:11434/v1`, `qdrant:6333`, `redis:6379`.
+Backend gọi services qua docker-compose DNS: `qdrant:6333`, `redis:6379`, `host.docker.internal:11434` (Ollama trên host).
 
 ### Dockerfile
 
@@ -1307,7 +1340,118 @@ Backend gọi services qua docker-compose DNS: `http://ollama:11434/v1`, `qdrant
 
 ---
 
-## 16. Tổng hợp tham số
+## 16. Monitoring — Prometheus + Grafana
+
+### Kiến trúc
+
+```
+FastAPI :8000/metrics ──┐
+Qdrant  :6333/metrics   ├──► Prometheus :9090 ──► Grafana :3000
+Redis Exporter :9121   ──┘
+```
+
+Prometheus scrape metrics từ 3 nguồn mỗi 15 giây. Grafana đọc Prometheus và hiển thị dashboard.
+
+### Nguồn metrics
+
+| Nguồn | Endpoint | Metrics |
+|---|---|---|
+| **FastAPI** | `:8000/metrics` | HTTP count, latency, error rate per endpoint |
+| **Qdrant** | `:6333/metrics` | Vectors indexed, search latency, REST response count |
+| **Redis** (qua exporter) | `:9121` | Memory used, connected clients, hit/miss, commands/s |
+
+### Custom RAG metrics
+
+**File:** `backend/core/metrics.py` — định nghĩa các Prometheus metrics đặc thù cho RAG pipeline:
+
+| Metric | Type | Đo gì |
+|---|---|---|
+| `rag_retrieval_duration_seconds` | Histogram | Latency toàn bộ retrieval pipeline (embed + search + rerank) |
+| `rag_reranker_duration_seconds` | Histogram | Latency riêng cross-encoder reranking |
+| `rag_retrieved_chunks_count` | Histogram | Số chunks trả về sau retrieval + rerank |
+| `rag_llm_generation_duration_seconds` | Histogram | Latency LLM generate (non-streaming) |
+| `rag_cache_hits_total` | Counter | Số response được serve từ Redis cache |
+| `rag_cache_misses_total` | Counter | Số lần cache miss, phải chạy pipeline |
+| `rag_documents_ingested_total` | Counter | Số docs ingested thành công (label: `file_type`) |
+| `rag_documents_deleted_total` | Counter | Số docs đã xóa |
+| `rag_ingestion_duration_seconds` | Histogram | Latency ingestion 1 document |
+| `rag_active_conversations_total` | Gauge | Số conversation đang có trong memory |
+
+### Điểm đo trong code
+
+**`chat.py`** — đo 4 điểm:
+```python
+CACHE_HITS.inc()          / CACHE_MISSES.inc()      # cache check
+with RETRIEVAL_DURATION.time(): ...                  # retrieval pipeline
+RETRIEVED_CHUNKS.observe(len(retrieved_chunks))      # chunk count
+with LLM_DURATION.time(): answer = await llm.generate(...)  # LLM
+ACTIVE_CONVERSATIONS.set(len(manager._conversations))
+```
+
+**`documents.py`** — đo 3 điểm:
+```python
+with INGESTION_DURATION.time(): result = await ingestion.process_document(...)
+DOCUMENTS_INGESTED.labels(file_type=file_ext).inc()
+DOCUMENTS_DELETED.inc()
+```
+
+### Grafana Dashboard — 14 panels
+
+**File:** `docker/grafana/dashboards/rag_chatbot.json` — load tự động khi start.
+
+| Row | Panels |
+|---|---|
+| **Overview** | Request rate (req/s), Error rate (%), P95 API latency, Cache hit rate (%) |
+| **API Performance** | Request rate by endpoint, API latency P50/P95/P99 |
+| **RAG Pipeline** | Retrieval latency P50/P95, LLM latency P50/P95, Reranker latency P50/P95 |
+| **Documents** | Chunks retrieved per query P50/P95, Documents ingested & deleted per hour |
+| **Infrastructure** | Qdrant vectors indexed, Redis memory used, Active conversations |
+
+**Threshold colors** (đỏ/vàng/xanh):
+- Error rate: < 1% xanh, 1-5% vàng, > 5% đỏ
+- P95 latency: < 2s xanh, 2-10s vàng, > 10s đỏ
+- Cache hit rate: > 50% xanh, 20-50% vàng, < 20% đỏ
+
+### Prometheus config
+
+**File:** `docker/prometheus/prometheus.yml`
+
+```yaml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: rag-backend
+    static_configs: [{ targets: ["backend:8000"] }]
+    metrics_path: /metrics
+
+  - job_name: qdrant
+    static_configs: [{ targets: ["qdrant:6333"] }]
+    metrics_path: /metrics
+
+  - job_name: redis
+    static_configs: [{ targets: ["redis-exporter:9121"] }]
+```
+
+Data retention: **15 ngày** (`--storage.tsdb.retention.time=15d`).
+
+### Grafana auto-provisioning
+
+Grafana đọc 2 folder provisioning khi khởi động:
+
+| File | Tác dụng |
+|---|---|
+| `grafana/provisioning/datasources/prometheus.yml` | Auto-connect Prometheus làm datasource mặc định |
+| `grafana/provisioning/dashboards/dashboard.yml` | Scan `/var/lib/grafana/dashboards` mỗi 30s |
+| `grafana/dashboards/rag_chatbot.json` | Dashboard được mount vào folder trên |
+
+→ Mở `http://localhost:3000` ngay sau khi start là thấy dashboard — không cần cấu hình gì thêm.
+
+**Login mặc định:** `admin / admin`
+
+---
+
+## 17. Tổng hợp tham số
 
 Tất cả config qua Pydantic `BaseSettings`, đọc từ `.env`:
 

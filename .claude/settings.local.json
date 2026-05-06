@@ -5,7 +5,9 @@
       "Bash(python -c \"from backend.core import CircuitBreaker, retry_with_backoff; print\\('core OK'\\)\")",
       "Bash(python -c \"from backend.core.exceptions import RAGException, DocumentProcessingError; print\\('exceptions OK'\\)\")",
       "Bash(python -c \"from backend.config import settings; print\\('config OK'\\)\")",
-      "Bash(python -c \"from backend.api.v1.schemas.chat import ChatRequest, ChatResponse; print\\('schemas OK'\\)\")"
+      "Bash(python -c \"from backend.api.v1.schemas.chat import ChatRequest, ChatResponse; print\\('schemas OK'\\)\")",
+      "Bash(Get-ChildItem \"C:\\\\thanhhuynh\\\\Chatbot\\\\rag_chatbot\\\\backend\\\\services\" -Filter \"*.py\")",
+      "Bash(Select-Object Name)"
     ]
   }
 }

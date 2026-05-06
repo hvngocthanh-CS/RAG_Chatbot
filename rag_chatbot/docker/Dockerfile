@@ -53,7 +53,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:${PATH}" \
     HF_HOME=/opt/models \
-    SENTENCE_TRANSFORMERS_HOME=/opt/models
+    SENTENCE_TRANSFORMERS_HOME=/opt/models \
+    TRANSFORMERS_CACHE=/opt/models \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
 
 # curl for HEALTHCHECK + libgomp1 for torch
 RUN apt-get update && \
